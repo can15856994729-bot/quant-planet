@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,42 +20,37 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up Node.js
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Create placeholder web dir (needed by cap sync)
-        run: mkdir -p out
+      - name: Build Next.js
+        run: npm run build
 
-      - name: Run Capacitor sync (generates capacitor.settings.gradle etc.)
+      - name: Capacitor sync Android
         run: npx cap sync android
 
       - name: Grant Gradle execute permission
         run: chmod +x android/gradlew
 
       - name: Build Debug APK
-        run: |
-          cd android
-          ./gradlew assembleDebug --no-daemon --stacktrace
+        run: cd android && ./gradlew assembleDebug --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
-      - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk QuantPlanet.apk
-
-      - name: Upload APK as artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: QuantPlanet-APK
-          path: QuantPlanet.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
@@ -63,17 +58,16 @@ jobs:
           body: |
             ## 量化星球 QuantPlanet — Android APK
 
-            ### 安装方法
-            **华为 / 小米 / OPPO / 三星等 Android 手机：**
-            1. 下载 `QuantPlanet.apk`
-            2. 打开文件管理器找到下载的 APK，点击安装
-            3. 若提示"未知来源"，点击【仍然安装】
+            ### 安装方法（华为 / 小米 / OPPO / 三星等）
+            1. 下载 `app-debug.apk`
+            2. 打开文件管理器找到 APK，点击安装
+            3. 若提示【未知来源】，点击【仍然安装】
             4. 安装完成后桌面出现【量化星球】图标
 
-            **iPhone 用户请使用 PWA：**
-            打开 Safari → https://quant-planet.vercel.app → 分享 → 添加到主屏幕
+            ### iPhone 用户（PWA）
+            Safari 打开 https://quant-planet.vercel.app → 分享 → 添加到主屏幕
 
             ---
-            > ⚠️ 本App仅供量化策略学习和模拟交易，不构成投资建议，不提供真实交易功能。
-          files: QuantPlanet.apk
+            > ⚠️ 本App仅供量化策略学习和模拟交易，不构成投资建议。
+          files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
