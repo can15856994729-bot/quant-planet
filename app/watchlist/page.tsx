@@ -7,14 +7,23 @@ import PageHeader from "@/components/layout/PageHeader";
 import { formatPct, formatPrice, pnlColor, marketColor, formatMarket } from "@/lib/utils";
 import { useWatchlistQuotes } from "@/lib/useMarketData";
 
+type MarketTab = "全部" | "A股" | "港股" | "美股";
+const MARKET_MAP: Record<MarketTab, string | null> = {
+  "全部": null, "A股": "A", "港股": "HK", "美股": "US",
+};
+
 export default function WatchlistPage() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [activeTab, setActiveTab] = useState<MarketTab>("全部");
 
-  const stocks = MOCK_STOCKS.filter((s) => watchlist.includes(s.symbol));
-  const { quotes, realData } = useWatchlistQuotes(stocks.map((s) => s.symbol));
-  const allStocks = MOCK_STOCKS.filter((s) =>
+  const allWatched = MOCK_STOCKS.filter((s) => watchlist.includes(s.symbol));
+  const stocks = activeTab === "全部"
+    ? allWatched
+    : allWatched.filter((s) => s.market === MARKET_MAP[activeTab]);
+  const { quotes, realData } = useWatchlistQuotes(allWatched.map((s) => s.symbol));
+  const searchResults = MOCK_STOCKS.filter((s) =>
     !watchlist.includes(s.symbol) &&
     (s.name.includes(search) || s.symbol.toLowerCase().includes(search.toLowerCase()))
   );
@@ -48,7 +57,7 @@ export default function WatchlistPage() {
             />
           </div>
           <div className="space-y-2 max-h-60 overflow-y-auto">
-            {(search ? allStocks : MOCK_STOCKS.filter((s) => !watchlist.includes(s.symbol))).slice(0, 6).map((s) => (
+            {(search ? searchResults : MOCK_STOCKS.filter((s) => !watchlist.includes(s.symbol))).slice(0, 6).map((s) => (
               <div key={s.symbol}
                 className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer active:opacity-70"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}
@@ -69,16 +78,29 @@ export default function WatchlistPage() {
 
       {/* 市场分类标签 */}
       <div className="flex gap-2 px-4 py-3 overflow-x-auto">
-        {(["全部", "A股", "港股", "美股"] as const).map((tab, i) => (
-          <span key={tab} className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold"
-            style={{
-              background: i === 0 ? "#00E5A8" : "#0d1f3c",
-              color: i === 0 ? "#07111F" : "#64748B",
-              border: `1px solid ${i === 0 ? "#00E5A8" : "#1a2f50"}`,
-            }}>
-            {tab}
-          </span>
-        ))}
+        {(["全部", "A股", "港股", "美股"] as const).map((tab) => {
+          const count = tab === "全部"
+            ? allWatched.length
+            : allWatched.filter((s) => s.market === MARKET_MAP[tab]).length;
+          const active = activeTab === tab;
+          return (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold flex items-center gap-1"
+              style={{
+                background: active ? "#00E5A8" : "#0d1f3c",
+                color:      active ? "#07111F" : "#94A3B8",
+                border:     `1px solid ${active ? "#00E5A8" : "#1a2f50"}`,
+              }}>
+              {tab}
+              {count > 0 && (
+                <span className="text-[10px] font-black px-1 rounded-full"
+                  style={{ background: active ? "rgba(0,0,0,0.15)" : "rgba(148,163,184,0.15)" }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* 列表头 */}
@@ -147,8 +169,12 @@ export default function WatchlistPage() {
         {stocks.length === 0 && (
           <div className="text-center py-16">
             <Star size={40} color="#1a2f50" className="mx-auto mb-3" />
-            <p className="font-semibold" style={{ color: "#94A3B8" }}>暂无自选股</p>
-            <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>点击右上角 + 添加</p>
+            <p className="font-semibold" style={{ color: "#94A3B8" }}>
+              {activeTab === "全部" ? "暂无自选股" : `暂无${activeTab}自选股`}
+            </p>
+            <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>
+              {activeTab === "全部" ? "点击右上角 + 添加" : "点击右上角 + 添加对应市场股票"}
+            </p>
           </div>
         )}
       </div>
