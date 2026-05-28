@@ -64,16 +64,30 @@ jobs:
           body: |
             ## 量化星球 QuantPlanet — Android APK
 
-            ### 安装方法（华为 / 小米 / OPPO / 三星等）
-            1. 下载 `app-debug.apk`
-            2. 打开文件管理器找到 APK，点击安装
-            3. 若提示【未知来源】，点击【仍然安装】
-            4. 安装完成后桌面出现【量化星球】图标
-
-            ### iPhone 用户（PWA）
-            Safari 打开 https://quant-planet.vercel.app → 分享 → 添加到主屏幕
+            > ⚠️ **此 APK 仅支持 Android 手机（华为 / 小米 / OPPO / 三星等）**
+            > iPhone 用户请勿下载此 APK，请使用下方 PWA 方式安装。
 
             ---
-            > ⚠️ 本App仅供量化策略学习和模拟交易，不构成投资建议。
+
+            ### 📦 Android 安装方法
+            1. 点击下方 `app-debug.apk` 下载安装包
+            2. 打开手机文件管理器找到该文件，点击安装
+            3. 若提示【来自未知来源】，点击【仍然安装】或【允许】
+            4. 安装完成，桌面出现【量化星球】图标即可使用
+
+            ---
+
+            ### 🍎 iPhone 用户 — PWA 安装（免 App Store）
+            **⚠️ iPhone 不支持 APK，请用以下方式安装：**
+            1. 用 **Safari 浏览器**（必须是 Safari，不能用微信/Chrome）打开：
+               👉 https://quant-planet-64gr.vercel.app
+            2. 点击底部工具栏中间的 **分享按钮**（□ 带箭头图标）
+            3. 在菜单中选择 **「添加到主屏幕」**
+            4. 输入名称后点击 **「添加」**，图标即出现在桌面
+
+            安装后与原生 App 体验一致：全屏显示、无浏览器边框、支持离线缓存。
+
+            ---
+            > ⚠️ 本App仅供量化策略学习和模拟交易，不构成投资建议，历史数据不代表未来收益。
           files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
