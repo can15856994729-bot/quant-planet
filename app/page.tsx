@@ -3,6 +3,7 @@ import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download 
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor } from "@/lib/utils";
 import HomeMarket from "@/components/ui/HomeMarket";
+import HomeWatchlist from "@/components/ui/HomeWatchlist";
 
 export default function HomePage() {
   const watchlistStocks = MOCK_STOCKS.filter((s) => DEFAULT_WATCHLIST.includes(s.symbol)).slice(0, 4);
@@ -118,33 +119,7 @@ export default function HomePage() {
             全部 <ChevronRight size={13} />
           </Link>
         </div>
-        <div style={{ background: "#0d1f3c", borderRadius: 14, border: "1px solid #1a2f50" }}>
-          {watchlistStocks.map((s, i) => (
-            <Link key={s.symbol} href={`/stock/${s.symbol}`}>
-              <div className="flex items-center justify-between px-4 py-3"
-                style={{ borderBottom: i < watchlistStocks.length - 1 ? "1px solid #1a2f50" : "none" }}>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded"
-                      style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
-                      {s.symbol}
-                    </span>
-                  </div>
-                  <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>{s.industry}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
-                    {formatPrice(s.price, s.currency)}
-                  </p>
-                  <p className="font-bold text-[12px] num" style={{ color: pnlColor(s.changePct) }}>
-                    {formatPct(s.changePct)}
-                  </p>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <HomeWatchlist />
       </section>
 
       {/* 热门策略 */}

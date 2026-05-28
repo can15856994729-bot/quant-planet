@@ -43,10 +43,12 @@ export async function GET(req: NextRequest) {
     const d = json?.data;
     if (!d) throw new Error("no data");
 
-    // f43=最新价(×100精度), f169=涨跌(×100), f170=涨跌幅(×100)
+    // f43=最新价, f169=涨跌, f170=涨跌幅(×100)
     // f44=最高, f45=最低, f46=今开, f60=昨收
     // f47=成交量(手), f116=市值, f117=流通市值, f57=代码, f58=名称
-    const divisor = d.f43 > 10000 ? 1000 : 100; // 美股/港股精度不同
+    // 东方财富精度规则：A股/港股 ×100 存储（除以100），美股 ×1000 存储（除以1000）
+    const isUS = secid.startsWith("105.");
+    const divisor = isUS ? 1000 : 100;
     return NextResponse.json({
       symbol,
       name:       d.f58,
