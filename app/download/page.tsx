@@ -39,6 +39,15 @@ export default function DownloadPage() {
             </span>
           </div>
 
+          {/* iPhone 专属提示横幅 */}
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl mb-3"
+            style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)" }}>
+            <Apple size={14} color="#3B82F6" className="flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] font-bold leading-[1.6]" style={{ color: "#3B82F6" }}>
+              iPhone 不支持 APK，无需下载任何文件。用 Safari 打开网页版即可免费安装，体验与原生 App 一致。
+            </p>
+          </div>
+
           <div className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <p className="text-[12px] font-bold mb-3" style={{ color: "#94A3B8" }}>
               📱 使用 Safari 浏览器，无需 App Store，3步完成安装：
@@ -93,11 +102,22 @@ export default function DownloadPage() {
             <h2 className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>华为手机</h2>
           </div>
 
+          {/* APK 仅限安卓提示 */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-3"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+            <span className="text-[14px]">⚠️</span>
+            <p className="text-[11px] font-bold" style={{ color: "#EF4444" }}>
+              APK 仅支持 Android 手机（华为/小米/OPPO/三星等）。iPhone 用户请勿下载，请使用上方 Safari 方式安装。
+            </p>
+          </div>
+
           {/* 方式一：APK */}
           <div className="p-4 rounded-2xl mb-3" style={{ background: "#0d1f3c", border: "1px solid rgba(0,229,168,0.2)" }}>
             <div className="flex items-center gap-2 mb-3">
               <Download size={15} color="#00E5A8" />
               <p className="font-bold text-[13px]" style={{ color: "#00E5A8" }}>方式一：直接下载 APK（推荐）</p>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                style={{ background: "rgba(239,68,68,0.12)", color: "#EF4444" }}>仅限安卓</span>
             </div>
             <div className="space-y-2.5">
               {[
@@ -153,6 +173,8 @@ export default function DownloadPage() {
               <Globe size={16} color="#3B82F6" />
             </div>
             <h2 className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>小米 / 三星 / OPPO 等</h2>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+              style={{ background: "rgba(239,68,68,0.12)", color: "#EF4444" }}>仅限安卓</span>
           </div>
           <div className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <p className="text-[12px] mb-3" style={{ color: "#94A3B8" }}>任选一种方式：</p>
