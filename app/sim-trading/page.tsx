@@ -191,106 +191,123 @@ export default function SimTradingPage() {
       {showOrder && (
         <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowOrder(false); }}>
-          <div className="w-full max-w-[480px] mx-auto rounded-t-3xl p-5 pb-8"
-            style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: "#1a2f50" }} />
+          {/* 弹窗：最高 90vh，内容滚动，确认按钮固定底部 */}
+          <div className="w-full max-w-[480px] mx-auto rounded-t-3xl flex flex-col"
+            style={{ background: "#0d1f3c", border: "1px solid #1a2f50", maxHeight: "90vh" }}>
 
-            {orderSuccess ? (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"
-                  style={{ background: "rgba(0,229,168,0.15)" }}>
-                  <span className="text-[30px]">✓</span>
+            {/* 拖动条 + 标题（固定顶部） */}
+            <div className="px-5 pt-4 pb-3 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#1a2f50" }} />
+              {!orderSuccess && (
+                <p className="font-black text-[16px]" style={{ color: "#F8FAFC" }}>模拟下单</p>
+              )}
+            </div>
+
+            {/* 可滚动内容区 */}
+            <div className="flex-1 overflow-y-auto px-5 pb-2">
+              {orderSuccess ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"
+                    style={{ background: "rgba(0,229,168,0.15)" }}>
+                    <span className="text-[30px]">✓</span>
+                  </div>
+                  <p className="font-black text-[18px]" style={{ color: "#00E5A8" }}>模拟委托成功</p>
+                  <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>注意：这是模拟交易，不产生真实盈亏</p>
                 </div>
-                <p className="font-black text-[18px]" style={{ color: "#00E5A8" }}>模拟委托成功</p>
-                <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>注意：这是模拟交易，不产生真实盈亏</p>
-              </div>
-            ) : (
-              <>
-                <p className="font-black text-[16px] mb-4" style={{ color: "#F8FAFC" }}>模拟下单</p>
+              ) : (
+                <>
+                  {/* 买卖切换 */}
+                  <div className="flex gap-2 mb-4">
+                    {(["BUY", "SELL"] as const).map((t) => (
+                      <button key={t} onClick={() => setTradeType(t)}
+                        className="flex-1 py-2.5 rounded-xl font-black text-[14px]"
+                        style={{
+                          background: tradeType === t
+                            ? (t === "BUY" ? "rgba(0,229,168,0.2)" : "rgba(239,68,68,0.2)")
+                            : "#0a1628",
+                          color: tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#64748B",
+                          border: `1px solid ${tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#1a2f50"}`,
+                        }}>
+                        {t === "BUY" ? "买入" : "卖出"}
+                      </button>
+                    ))}
+                  </div>
 
-                {/* 买卖切换 */}
-                <div className="flex gap-2 mb-4">
-                  {(["BUY", "SELL"] as const).map((t) => (
-                    <button key={t} onClick={() => setTradeType(t)}
-                      className="flex-1 py-2.5 rounded-xl font-black text-[14px]"
-                      style={{
-                        background: tradeType === t
-                          ? (t === "BUY" ? "rgba(0,229,168,0.2)" : "rgba(239,68,68,0.2)")
-                          : "#0a1628",
-                        color: tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#64748B",
-                        border: `1px solid ${tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#1a2f50"}`,
-                      }}>
-                      {t === "BUY" ? "买入" : "卖出"}
-                    </button>
-                  ))}
-                </div>
+                  <div className="space-y-3">
+                    {/* 股票选择 */}
+                    <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
+                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>股票</span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>贵州茅台 (600519)</span>
+                        <ChevronRight size={14} color="#94A3B8" />
+                      </div>
+                    </div>
 
-                <div className="space-y-3">
-                  {/* 股票选择 */}
-                  <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                    <span className="text-[13px]" style={{ color: "#94A3B8" }}>股票</span>
-                    <div className="flex items-center gap-1">
-                      <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>贵州茅台 (600519)</span>
-                      <ChevronRight size={14} color="#94A3B8" />
+                    {/* 价格 */}
+                    <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
+                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托价格</span>
+                      <input
+                        className="bg-transparent text-right font-bold text-[15px] num outline-none w-28"
+                        style={{ color: "#F8FAFC" }}
+                        value={orderPrice}
+                        onChange={(e) => setOrderPrice(e.target.value)}
+                        inputMode="decimal"
+                      />
+                    </div>
+
+                    {/* 数量 */}
+                    <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
+                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托数量（股）</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setOrderShares((prev) => String(Math.max(100, +prev - 100)))}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center"
+                          style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+                          <Minus size={13} color="#94A3B8" />
+                        </button>
+                        <span className="font-bold text-[15px] num w-12 text-center" style={{ color: "#F8FAFC" }}>{orderShares}</span>
+                        <button onClick={() => setOrderShares((prev) => String(+prev + 100))}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center"
+                          style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+                          <Plus size={13} color="#94A3B8" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 预估金额 */}
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <span className="text-[12px]" style={{ color: "#94A3B8" }}>预估金额</span>
+                      <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
+                        ¥{(+orderPrice * +orderShares).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
                     </div>
                   </div>
 
-                  {/* 价格 */}
-                  <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                    <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托价格</span>
-                    <input
-                      className="bg-transparent text-right font-bold text-[15px] num outline-none w-28"
-                      style={{ color: "#F8FAFC" }}
-                      value={orderPrice}
-                      onChange={(e) => setOrderPrice(e.target.value)}
-                    />
+                  {/* 风险提示 */}
+                  <div className="flex items-start gap-2 p-2.5 rounded-xl mt-2"
+                    style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.15)" }}>
+                    <Info size={12} color="#FACC15" className="flex-shrink-0 mt-0.5" />
+                    <p className="text-[10px] leading-[1.6]" style={{ color: "#94A3B8" }}>
+                      此为模拟交易，使用虚拟资金，不产生真实盈亏，不构成投资建议。
+                    </p>
                   </div>
+                </>
+              )}
+            </div>
 
-                  {/* 数量 */}
-                  <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                    <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托数量（股）</span>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setOrderShares((prev) => String(Math.max(100, +prev - 100)))}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                        <Minus size={13} color="#94A3B8" />
-                      </button>
-                      <span className="font-bold text-[15px] num w-12 text-center" style={{ color: "#F8FAFC" }}>{orderShares}</span>
-                      <button onClick={() => setOrderShares((prev) => String(+prev + 100))}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                        <Plus size={13} color="#94A3B8" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 预估金额 */}
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[12px]" style={{ color: "#94A3B8" }}>预估金额</span>
-                    <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
-                      ¥{(+orderPrice * +orderShares).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 风险提示 */}
-                <div className="flex items-start gap-2 p-2.5 rounded-xl mt-2"
-                  style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.15)" }}>
-                  <Info size={12} color="#FACC15" className="flex-shrink-0 mt-0.5" />
-                  <p className="text-[10px] leading-[1.6]" style={{ color: "#94A3B8" }}>
-                    此为模拟交易，使用虚拟资金，不产生真实盈亏，不构成投资建议。
-                  </p>
-                </div>
-
+            {/* 确认按钮（固定底部，永远可见） */}
+            {!orderSuccess && (
+              <div className="flex-shrink-0 px-5 pt-3 pb-8" style={{ borderTop: "1px solid #1a2f50" }}>
                 <button onClick={handleOrder}
-                  className="w-full py-3.5 rounded-2xl font-black text-[15px] mt-4 glow-green"
+                  className="w-full py-4 rounded-2xl font-black text-[15px] glow-green"
                   style={{
-                    background: tradeType === "BUY" ? "linear-gradient(135deg, #00E5A8, #00b885)" : "linear-gradient(135deg, #EF4444, #dc2626)",
+                    background: tradeType === "BUY"
+                      ? "linear-gradient(135deg, #00E5A8, #00b885)"
+                      : "linear-gradient(135deg, #EF4444, #dc2626)",
                     color: "#F8FAFC",
                   }}>
                   {tradeType === "BUY" ? "确认模拟买入" : "确认模拟卖出"}
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>
