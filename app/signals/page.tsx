@@ -1,10 +1,11 @@
 ﻿"use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Bell, BellOff, Info, TrendingUp, TrendingDown, Zap, Shield, Activity } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIGNALS } from "@/lib/mock-data";
 import { signalTypeLabel, signalTypeColor, marketColor, formatMarket, pnlColor, formatPrice, marketToCurrency } from "@/lib/utils";
 import { useWatchlistQuotes } from "@/lib/useMarketData";
+import { getReadSet, persistRead } from "@/lib/readSignals";
 import type { SignalType } from "@/types";
 
 const FILTER_TABS: (SignalType | "全部")[] = ["全部", "BUY", "SELL", "BREAKOUT", "GOLDEN_CROSS", "STOP_LOSS", "HIGH_RISK"];
@@ -31,6 +32,11 @@ export default function SignalsPage() {
   const [notifyOn, setNotifyOn] = useState(true);
   const [readSet, setReadSet] = useState<Set<string>>(new Set());
 
+  // 初始化时从 localStorage 读取已读记录
+  useEffect(() => {
+    setReadSet(getReadSet());
+  }, []);
+
   const { quotes } = useWatchlistQuotes(SIGNAL_SYMBOLS);
 
   const filtered = filter === "全部" ? MOCK_SIGNALS : MOCK_SIGNALS.filter((s) => s.type === filter);
@@ -38,6 +44,7 @@ export default function SignalsPage() {
 
   function markRead(id: string) {
     setReadSet((prev) => new Set([...prev, id]));
+    persistRead(id); // 持久化到 localStorage，首页铃铛同步更新
   }
 
   const strengthBg: Record<string, string> = {

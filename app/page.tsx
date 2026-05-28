@@ -1,14 +1,14 @@
 ﻿import Link from "next/link";
-import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
+import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
 import HomeMarket from "@/components/ui/HomeMarket";
 import HomeWatchlist from "@/components/ui/HomeWatchlist";
 import HomeSignals from "@/components/ui/HomeSignals";
+import SignalBellBadge from "@/components/ui/SignalBellBadge";
 
 export default function HomePage() {
   const watchlistStocks = MOCK_STOCKS.filter((s) => DEFAULT_WATCHLIST.includes(s.symbol)).slice(0, 4);
-  const unreadCount = MOCK_SIGNALS.filter((s) => !s.read).length;
   const buyCount  = MOCK_SIGNALS.filter((s) => s.type === "BUY" || s.type === "GOLDEN_CROSS").length;
   const sellCount = MOCK_SIGNALS.filter((s) => s.type === "SELL" || s.type === "STOP_LOSS").length;
 
@@ -21,13 +21,7 @@ export default function HomePage() {
           <h1 className="font-black text-[20px]" style={{ color: "#F8FAFC" }}>量化星球</h1>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/signals" className="relative">
-            <Bell size={22} color="#94A3B8" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black"
-                style={{ background: "#EF4444", color: "#fff" }}>{unreadCount}</span>
-            )}
-          </Link>
+          <SignalBellBadge />
           <Link href="/watchlist"><Search size={22} color="#94A3B8" /></Link>
           <Link href="/download" className="w-8 h-8 rounded-xl flex items-center justify-center"
             style={{ background: "rgba(0,229,168,0.10)", border: "1px solid rgba(0,229,168,0.2)" }}>
