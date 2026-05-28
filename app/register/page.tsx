@@ -60,14 +60,14 @@ export default function RegisterPage() {
       </button>
 
       <h1 className="font-black text-[24px] mb-1" style={{ color: "#F8FAFC" }}>创建账户</h1>
-      <p className="text-[13px] mb-8" style={{ color: "#4a6080" }}>加入量化星球，开始你的量化之旅</p>
+      <p className="text-[13px] mb-8" style={{ color: "#94A3B8" }}>加入量化星球，开始你的量化之旅</p>
 
       <div className="space-y-4">
         {/* 手机号 */}
         <div>
-          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#4a6080" }}>手机号</label>
+          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#94A3B8" }}>手机号</label>
           <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl" style={inputStyle(!!phone)}>
-            <Phone size={16} color="#4a6080" />
+            <Phone size={16} color="#94A3B8" />
             <input type="tel" maxLength={11}
               className="flex-1 bg-transparent text-[15px] outline-none" style={{ color: "#F8FAFC" }}
               placeholder="请输入手机号"
@@ -77,9 +77,9 @@ export default function RegisterPage() {
 
         {/* 昵称 */}
         <div>
-          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#4a6080" }}>昵称</label>
+          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#94A3B8" }}>昵称</label>
           <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl" style={inputStyle(!!nickname)}>
-            <User size={16} color="#4a6080" />
+            <User size={16} color="#94A3B8" />
             <input type="text" maxLength={16}
               className="flex-1 bg-transparent text-[15px] outline-none" style={{ color: "#F8FAFC" }}
               placeholder="给自己取个名字"
@@ -89,25 +89,25 @@ export default function RegisterPage() {
 
         {/* 密码 */}
         <div>
-          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#4a6080" }}>密码</label>
+          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#94A3B8" }}>密码</label>
           <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl" style={inputStyle(!!password)}>
-            <Lock size={16} color="#4a6080" />
+            <Lock size={16} color="#94A3B8" />
             <input type={showPwd ? "text" : "password"}
               className="flex-1 bg-transparent text-[15px] outline-none" style={{ color: "#F8FAFC" }}
               placeholder="至少6位"
               value={password} onChange={(e) => setPassword(e.target.value)} />
             <button onClick={() => setShowPwd(!showPwd)}>
-              {showPwd ? <EyeOff size={16} color="#4a6080" /> : <Eye size={16} color="#4a6080" />}
+              {showPwd ? <EyeOff size={16} color="#94A3B8" /> : <Eye size={16} color="#94A3B8" />}
             </button>
           </div>
         </div>
 
         {/* 确认密码 */}
         <div>
-          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#4a6080" }}>确认密码</label>
+          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#94A3B8" }}>确认密码</label>
           <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl"
             style={inputStyle(!!confirm && confirm === password)}>
-            <Lock size={16} color="#4a6080" />
+            <Lock size={16} color="#94A3B8" />
             <input type={showPwd ? "text" : "password"}
               className="flex-1 bg-transparent text-[15px] outline-none" style={{ color: "#F8FAFC" }}
               placeholder="再输入一次密码"
@@ -122,15 +122,15 @@ export default function RegisterPage() {
 
         {/* 风险偏好 */}
         <div>
-          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#4a6080" }}>风险偏好</label>
+          <label className="text-[12px] font-semibold mb-2 block" style={{ color: "#94A3B8" }}>风险偏好</label>
           <button onClick={() => setShowRisk(!showRisk)}
             className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl"
             style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <div className="text-left">
               <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{riskLevel}型</span>
-              <span className="text-[11px] ml-2" style={{ color: "#4a6080" }}>{RISK_DESC[riskLevel]}</span>
+              <span className="text-[11px] ml-2" style={{ color: "#94A3B8" }}>{RISK_DESC[riskLevel]}</span>
             </div>
-            <ChevronDown size={16} color="#4a6080" className={`transition-transform ${showRisk ? "rotate-180" : ""}`} />
+            <ChevronDown size={16} color="#94A3B8" className={`transition-transform ${showRisk ? "rotate-180" : ""}`} />
           </button>
           {showRisk && (
             <div className="mt-2 rounded-2xl overflow-hidden" style={{ border: "1px solid #1a2f50" }}>
@@ -143,7 +143,7 @@ export default function RegisterPage() {
                   }}>
                   <div className="text-left">
                     <p className="font-bold text-[13px]" style={{ color: riskLevel === opt ? "#00E5A8" : "#F8FAFC" }}>{opt}型</p>
-                    <p className="text-[11px]" style={{ color: "#4a6080" }}>{RISK_DESC[opt]}</p>
+                    <p className="text-[11px]" style={{ color: "#94A3B8" }}>{RISK_DESC[opt]}</p>
                   </div>
                   {riskLevel === opt && <span style={{ color: "#00E5A8" }}>✓</span>}
                 </button>
@@ -158,13 +158,13 @@ export default function RegisterPage() {
           className="w-full py-4 rounded-2xl font-black text-[16px] mt-2 glow-green"
           style={{
             background: loading ? "#0d1f3c" : "linear-gradient(135deg, #00E5A8, #00b885)",
-            color: loading ? "#4a6080" : "#07111F",
+            color: loading ? "#64748B" : "#07111F",
             border: loading ? "1px solid #1a2f50" : "none",
           }}>
           {loading ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-4 h-4 rounded-full border-2 animate-spin"
-                style={{ borderColor: "#4a6080", borderTopColor: "transparent" }} />
+                style={{ borderColor: "#94A3B8", borderTopColor: "transparent" }} />
               注册中…
             </span>
           ) : "立即注册"}
@@ -172,7 +172,7 @@ export default function RegisterPage() {
       </div>
 
       <div className="flex items-center justify-center gap-2 mt-6">
-        <span className="text-[13px]" style={{ color: "#4a6080" }}>已有账户？</span>
+        <span className="text-[13px]" style={{ color: "#94A3B8" }}>已有账户？</span>
         <Link href="/login" className="font-bold text-[13px]" style={{ color: "#00E5A8" }}>去登录</Link>
       </div>
 

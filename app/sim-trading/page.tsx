@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState } from "react";
 import Link from "next/link";
 import { TrendingUp, TrendingDown, Plus, Minus, PieChart, Clock, Info, ChevronRight } from "lucide-react";
@@ -31,20 +31,20 @@ export default function SimTradingPage() {
 
       {/* 账户总览 */}
       <div className="mx-4 mt-4 p-4 rounded-2xl" style={{ background: "linear-gradient(135deg, #0d1f3c, #0a1628)", border: "1px solid #1a2f50" }}>
-        <p className="text-[11px] mb-1" style={{ color: "#4a6080" }}>模拟账户总资产（元）</p>
+        <p className="text-[11px] mb-1" style={{ color: "#94A3B8" }}>模拟账户总资产（元）</p>
         <p className="font-black text-[32px] num" style={{ color: "#F8FAFC" }}>
           ¥{acc.totalValue.toLocaleString()}
         </p>
         <div className="flex items-center gap-4 mt-2">
           <div>
-            <p className="text-[10px]" style={{ color: "#4a6080" }}>累计盈亏</p>
+            <p className="text-[10px]" style={{ color: "#94A3B8" }}>累计盈亏</p>
             <p className="font-bold text-[15px] num" style={{ color: pnlColor(acc.totalReturn) }}>
               {acc.totalReturn > 0 ? "+" : ""}¥{acc.totalReturn.toLocaleString()}
               <span className="text-[12px] ml-1">({formatPct(acc.totalReturnPct)})</span>
             </p>
           </div>
           <div>
-            <p className="text-[10px]" style={{ color: "#4a6080" }}>今日盈亏</p>
+            <p className="text-[10px]" style={{ color: "#94A3B8" }}>今日盈亏</p>
             <p className="font-bold text-[15px] num" style={{ color: pnlColor(acc.todayPnl) }}>
               {acc.todayPnl > 0 ? "+" : ""}¥{acc.todayPnl.toLocaleString()}
               <span className="text-[12px] ml-1">({formatPct(acc.todayPnlPct)})</span>
@@ -60,7 +60,7 @@ export default function SimTradingPage() {
           </div>
           <div className="flex justify-between text-[10px]">
             <span style={{ color: "#00E5A8" }}>股票 {stockRatio}%</span>
-            <span style={{ color: "#4a6080" }}>可用资金 ¥{acc.cash.toLocaleString()}</span>
+            <span style={{ color: "#94A3B8" }}>可用资金 ¥{acc.cash.toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -82,7 +82,7 @@ export default function SimTradingPage() {
             className="flex-1 py-2 rounded-lg text-[13px] font-bold transition-all"
             style={{
               background: tab === t ? "#0d1f3c" : "transparent",
-              color: tab === t ? "#00E5A8" : "#4a6080",
+              color: tab === t ? "#00E5A8" : "#64748B",
               border: tab === t ? "1px solid #1a2f50" : "1px solid transparent",
             }}>
             {t}
@@ -107,12 +107,12 @@ export default function SimTradingPage() {
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{pos.name}</span>
-                        <span className="text-[9px] px-1 py-0.5 rounded font-bold"
+                        <span className="text-[10px] px-1 py-0.5 rounded font-bold"
                           style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
                           {formatMarket(pos.market)}
                         </span>
                       </div>
-                      <p className="text-[10px]" style={{ color: "#4a6080" }}>{pos.symbol}</p>
+                      <p className="text-[10px]" style={{ color: "#94A3B8" }}>{pos.symbol}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -132,7 +132,7 @@ export default function SimTradingPage() {
                   ].map(({ label, value }) => (
                     <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
                       <p className="font-semibold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>
-                      <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
                     </div>
                   ))}
                 </div>
@@ -165,12 +165,12 @@ export default function SimTradingPage() {
                   </div>
                   <div>
                     <p className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{tr.name}</p>
-                    <p className="text-[10px]" style={{ color: "#4a6080" }}>{tr.createdAt} · {tr.shares}股</p>
+                    <p className="text-[10px]" style={{ color: "#94A3B8" }}>{tr.createdAt} · {tr.shares}股</p>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>¥{tr.price.toFixed(2)}</p>
-                  <p className="text-[10px] num" style={{ color: "#4a6080" }}>¥{tr.amount.toLocaleString()}</p>
+                  <p className="text-[10px] num" style={{ color: "#94A3B8" }}>¥{tr.amount.toLocaleString()}</p>
                 </div>
               </div>
             ))}
@@ -181,8 +181,8 @@ export default function SimTradingPage() {
         {tab === "下单" && (
           <div className="text-center py-16">
             <Clock size={40} color="#1a2f50" className="mx-auto mb-3" />
-            <p className="font-semibold" style={{ color: "#4a6080" }}>暂无委托记录</p>
-            <p className="text-[12px] mt-1" style={{ color: "#4a6080" }}>点击上方「模拟下单」发起交易</p>
+            <p className="font-semibold" style={{ color: "#94A3B8" }}>暂无委托记录</p>
+            <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>点击上方「模拟下单」发起交易</p>
           </div>
         )}
       </div>
@@ -202,7 +202,7 @@ export default function SimTradingPage() {
                   <span className="text-[30px]">✓</span>
                 </div>
                 <p className="font-black text-[18px]" style={{ color: "#00E5A8" }}>模拟委托成功</p>
-                <p className="text-[12px] mt-1" style={{ color: "#4a6080" }}>注意：这是模拟交易，不产生真实盈亏</p>
+                <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>注意：这是模拟交易，不产生真实盈亏</p>
               </div>
             ) : (
               <>
@@ -217,7 +217,7 @@ export default function SimTradingPage() {
                         background: tradeType === t
                           ? (t === "BUY" ? "rgba(0,229,168,0.2)" : "rgba(239,68,68,0.2)")
                           : "#0a1628",
-                        color: tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#4a6080",
+                        color: tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#64748B",
                         border: `1px solid ${tradeType === t ? (t === "BUY" ? "#00E5A8" : "#EF4444") : "#1a2f50"}`,
                       }}>
                       {t === "BUY" ? "买入" : "卖出"}
@@ -231,7 +231,7 @@ export default function SimTradingPage() {
                     <span className="text-[13px]" style={{ color: "#94A3B8" }}>股票</span>
                     <div className="flex items-center gap-1">
                       <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>贵州茅台 (600519)</span>
-                      <ChevronRight size={14} color="#4a6080" />
+                      <ChevronRight size={14} color="#94A3B8" />
                     </div>
                   </div>
 
@@ -266,7 +266,7 @@ export default function SimTradingPage() {
 
                   {/* 预估金额 */}
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[12px]" style={{ color: "#4a6080" }}>预估金额</span>
+                    <span className="text-[12px]" style={{ color: "#94A3B8" }}>预估金额</span>
                     <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
                       ¥{(+orderPrice * +orderShares).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
@@ -277,7 +277,7 @@ export default function SimTradingPage() {
                 <div className="flex items-start gap-2 p-2.5 rounded-xl mt-2"
                   style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.15)" }}>
                   <Info size={12} color="#FACC15" className="flex-shrink-0 mt-0.5" />
-                  <p className="text-[10px] leading-[1.6]" style={{ color: "#4a6080" }}>
+                  <p className="text-[10px] leading-[1.6]" style={{ color: "#94A3B8" }}>
                     此为模拟交易，使用虚拟资金，不产生真实盈亏，不构成投资建议。
                   </p>
                 </div>

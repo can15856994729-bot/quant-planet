@@ -15,7 +15,7 @@ export default function HomeMarket() {
         </h2>
         <div className="flex items-center gap-2">
           {realData && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
               style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
               实时
             </span>
@@ -23,7 +23,7 @@ export default function HomeMarket() {
           <button onClick={refresh} disabled={loading}
             className="w-6 h-6 flex items-center justify-center rounded-lg"
             style={{ background: "#0a1628" }}>
-            <RefreshCw size={12} color="#4a6080" className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={12} color="#94A3B8" className={loading ? "animate-spin" : ""} />
           </button>
         </div>
       </div>
@@ -33,7 +33,7 @@ export default function HomeMarket() {
             <div className="flex items-center justify-between px-4 py-3 active:opacity-70"
               style={{ borderBottom: i < 3 ? "1px solid #1a2f50" : "none" }}>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                   style={{ background: `${marketColor(idx.market)}18`, color: marketColor(idx.market) }}>
                   {formatMarket(idx.market)}
                 </span>
@@ -48,7 +48,7 @@ export default function HomeMarket() {
                     {formatPct(idx.changePct)}
                   </p>
                 </div>
-                <ChevronRight size={14} color="#4a6080" />
+                <ChevronRight size={14} color="#94A3B8" />
               </div>
             </div>
           </Link>

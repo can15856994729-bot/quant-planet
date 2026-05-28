@@ -38,7 +38,7 @@ export default function WatchlistPage() {
         <div className="px-4 py-3" style={{ borderBottom: "1px solid #1a2f50", background: "#0a1628" }}>
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3"
             style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <Search size={15} color="#4a6080" />
+            <Search size={15} color="#94A3B8" />
             <input
               className="flex-1 bg-transparent text-[14px] outline-none"
               style={{ color: "#F8FAFC" }}
@@ -73,7 +73,7 @@ export default function WatchlistPage() {
           <span key={tab} className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold"
             style={{
               background: i === 0 ? "#00E5A8" : "#0d1f3c",
-              color: i === 0 ? "#07111F" : "#4a6080",
+              color: i === 0 ? "#07111F" : "#64748B",
               border: `1px solid ${i === 0 ? "#00E5A8" : "#1a2f50"}`,
             }}>
             {tab}
@@ -83,10 +83,10 @@ export default function WatchlistPage() {
 
       {/* 列表头 */}
       <div className="flex items-center justify-between px-4 py-2">
-        <span className="text-[11px] font-semibold" style={{ color: "#4a6080" }}>名称/代码</span>
+        <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>名称/代码</span>
         <div className="flex gap-8">
-          <span className="text-[11px] font-semibold" style={{ color: "#4a6080" }}>最新价</span>
-          <span className="text-[11px] font-semibold" style={{ color: "#4a6080" }}>涨跌幅</span>
+          <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>最新价</span>
+          <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>涨跌幅</span>
         </div>
       </div>
 
@@ -105,18 +105,18 @@ export default function WatchlistPage() {
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
-                      <span className="text-[9px] font-bold px-1 py-0.5 rounded"
+                      <span className="text-[10px] font-bold px-1 py-0.5 rounded"
                         style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
                         {formatMarket(s.market)}
                       </span>
                     </div>
-                    <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>{s.symbol} · {s.industry}</p>
+                    <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="flex items-center justify-end gap-1 mb-0.5">
                     {realData && quotes[s.symbol] && (
-                      <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                      <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                         style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                     )}
                     <p className="font-bold text-[15px] num" style={{ color: "#F8FAFC" }}>
@@ -147,8 +147,8 @@ export default function WatchlistPage() {
         {stocks.length === 0 && (
           <div className="text-center py-16">
             <Star size={40} color="#1a2f50" className="mx-auto mb-3" />
-            <p className="font-semibold" style={{ color: "#4a6080" }}>暂无自选股</p>
-            <p className="text-[12px] mt-1" style={{ color: "#4a6080" }}>点击右上角 + 添加</p>
+            <p className="font-semibold" style={{ color: "#94A3B8" }}>暂无自选股</p>
+            <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>点击右上角 + 添加</p>
           </div>
         )}
       </div>

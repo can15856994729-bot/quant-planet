@@ -35,7 +35,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
 
         {/* 回测核心数据 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>回测核心数据</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>回测核心数据</h2>
           <div className="grid grid-cols-2 gap-2.5">
             {[
               { label: "年化回测收益", value: `+${st.annualReturn}%`, color: "#00E5A8", big: true },
@@ -45,7 +45,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
             ].map(({ label, value, color, big }) => (
               <div key={label} className="p-3 rounded-xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <p className={`font-black num ${big ? "text-[22px]" : "text-[18px]"}`} style={{ color }}>{value}</p>
-                <p className="text-[11px] mt-1" style={{ color: "#4a6080" }}>{label}</p>
+                <p className="text-[11px] mt-1" style={{ color: "#94A3B8" }}>{label}</p>
               </div>
             ))}
           </div>
@@ -54,7 +54,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
         {/* 参数设置 */}
         {st.params.length > 0 && (
           <div>
-            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>策略参数</h2>
+            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>策略参数</h2>
             <div className="p-4 rounded-2xl space-y-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
               {st.params.map((p) => (
                 <div key={p.key} className="flex items-center justify-between">
@@ -63,7 +63,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
                     <span className="font-black text-[15px] num" style={{ color: "#00E5A8" }}>
                       {p.defaultValue}{p.unit}
                     </span>
-                    <span className="text-[10px]" style={{ color: "#4a6080" }}>
+                    <span className="text-[10px]" style={{ color: "#94A3B8" }}>
                       ({p.min}~{p.max})
                     </span>
                   </div>
@@ -76,7 +76,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
         {/* 使用指标 */}
         {st.indicators.length > 0 && (
           <div>
-            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>使用指标</h2>
+            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>使用指标</h2>
             <div className="flex flex-wrap gap-2">
               {st.indicators.map((ind) => (
                 <span key={ind} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
@@ -90,7 +90,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
 
         {/* 适用市场 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>适用市场</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>适用市场</h2>
           <div className="flex gap-2">
             {st.markets.map((m) => (
               <span key={m} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
@@ -105,7 +105,7 @@ export default async function StrategyDetailPage({ params }: { params: Promise<{
         <div className="p-3 rounded-xl flex items-start gap-2"
           style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)" }}>
           <Info size={14} color="#EF4444" className="flex-shrink-0 mt-0.5" />
-          <p className="text-[11px] leading-[1.7]" style={{ color: "#4a6080" }}>
+          <p className="text-[11px] leading-[1.7]" style={{ color: "#94A3B8" }}>
             以上回测数据基于历史数据模拟，不构成投资建议。历史回测不代表未来收益，实际交易受手续费、滑点等影响。
           </p>
         </div>

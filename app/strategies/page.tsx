@@ -17,7 +17,7 @@ export default function StrategiesPage() {
           <span key={c} className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold"
             style={{
               background: i === 0 ? "#00E5A8" : "#0d1f3c",
-              color: i === 0 ? "#07111F" : "#4a6080",
+              color: i === 0 ? "#07111F" : "#64748B",
               border: `1px solid ${i === 0 ? "#00E5A8" : "#1a2f50"}`,
             }}>
             {c}
@@ -27,7 +27,7 @@ export default function StrategiesPage() {
 
       {/* 策略数量 */}
       <div className="px-4 py-2">
-        <p className="text-[12px]" style={{ color: "#4a6080" }}>共 {MOCK_STRATEGIES.length} 个策略</p>
+        <p className="text-[12px]" style={{ color: "#94A3B8" }}>共 {MOCK_STRATEGIES.length} 个策略</p>
       </div>
 
       {/* 策略列表 */}
@@ -47,7 +47,7 @@ export default function StrategiesPage() {
                   </div>
                   <p className="text-[11px]" style={{ color: "#94A3B8" }}>{st.description.slice(0, 48)}…</p>
                 </div>
-                <ChevronRight size={18} color="#4a6080" className="flex-shrink-0 mt-1" />
+                <ChevronRight size={18} color="#94A3B8" className="flex-shrink-0 mt-1" />
               </div>
 
               {/* 数据行 */}
@@ -60,7 +60,7 @@ export default function StrategiesPage() {
                 ].map(({ label, value, color }) => (
                   <div key={label} className="text-center p-2 rounded-xl" style={{ background: "#0a1628" }}>
                     <p className="font-black text-[13px] num" style={{ color }}>{value}</p>
-                    <p className="text-[9px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
+                    <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
                   </div>
                 ))}
               </div>
@@ -74,7 +74,7 @@ export default function StrategiesPage() {
                   </span>
                   {st.tags.slice(0, 2).map((tag) => (
                     <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full"
-                      style={{ background: "#0a1628", color: "#4a6080", border: "1px solid #1a2f50" }}>
+                      style={{ background: "#0a1628", color: "#94A3B8", border: "1px solid #1a2f50" }}>
                       {tag}
                     </span>
                   ))}
@@ -92,7 +92,7 @@ export default function StrategiesPage() {
 
       {/* 免责声明 */}
       <div className="mx-4 mb-6 p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.12)" }}>
-        <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+        <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
           ⚠️ 以上回测数据均基于历史数据模拟，不构成投资建议。历史回测不代表未来收益，投资需谨慎。
         </p>
       </div>

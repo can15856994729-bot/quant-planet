@@ -29,17 +29,17 @@ export default function HomeWatchlist() {
                 <div className="flex items-center gap-1.5">
                   <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
                   <span
-                    className="text-[9px] font-bold px-1 py-0.5 rounded"
+                    className="text-[10px] font-bold px-1 py-0.5 rounded"
                     style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}
                   >
                     {s.symbol}
                   </span>
                   {realData && q && (
-                    <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                    <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                       style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                   )}
                 </div>
-                <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>{s.industry}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>{s.industry}</p>
               </div>
               <div className="text-right">
                 <p className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>

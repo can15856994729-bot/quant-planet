@@ -211,7 +211,7 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
         <div className="flex items-start justify-between mb-3">
           <div>
             {realData && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold mb-1 inline-block"
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold mb-1 inline-block"
                 style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
                 实时
               </span>
@@ -234,7 +234,7 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
           <button onClick={fetchQuote} disabled={loading}
             className="w-8 h-8 flex items-center justify-center rounded-xl mt-1"
             style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-            <RefreshCw size={14} color="#4a6080" className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={14} color="#94A3B8" className={loading ? "animate-spin" : ""} />
           </button>
         </div>
 
@@ -247,7 +247,7 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
             { label: "最低", value: todayLow.toFixed(2),     color: "#EF4444" },
           ].map(({ label, value, color }) => (
             <div key={label} className="text-center">
-              <p className="text-[9px] mb-0.5" style={{ color: "#4a6080" }}>{label}</p>
+              <p className="text-[10px] mb-0.5" style={{ color: "#94A3B8" }}>{label}</p>
               <p className="font-bold text-[12px] num" style={{ color }}>{value}</p>
             </div>
           ))}

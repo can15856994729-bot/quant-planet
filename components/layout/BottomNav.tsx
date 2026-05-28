@@ -43,13 +43,13 @@ export default function BottomNav() {
                 />
               )}
               <div className="relative">
-                <Icon size={20} strokeWidth={active ? 2.2 : 1.6} color={active ? "#00E5A8" : "#4a6080"} />
+                <Icon size={20} strokeWidth={active ? 2.2 : 1.6} color={active ? "#00E5A8" : "#64748B"} />
                 {showDot && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
                     style={{ background: "#EF4444" }} />
                 )}
               </div>
-              <span className="text-[10px] font-semibold" style={{ color: active ? "#00E5A8" : "#4a6080" }}>
+              <span className="text-[10px] font-semibold" style={{ color: active ? "#00E5A8" : "#64748B" }}>
                 {label}
               </span>
             </Link>

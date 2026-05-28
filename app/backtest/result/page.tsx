@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -42,13 +42,13 @@ function ResultContent() {
           <div className="flex items-center justify-between mb-1">
             <div>
               <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>{strategy.name}</p>
-              <p className="text-[12px] mt-0.5" style={{ color: "#4a6080" }}>{stock.name} ({stock.symbol}) · {bt.period}</p>
+              <p className="text-[12px] mt-0.5" style={{ color: "#94A3B8" }}>{stock.name} ({stock.symbol}) · {bt.period}</p>
             </div>
             <div className="text-center">
               <div className="w-14 h-14 rounded-full flex flex-col items-center justify-center"
                 style={{ background: `${scoreColor}15`, border: `2px solid ${scoreColor}` }}>
                 <span className="font-black text-[18px] num" style={{ color: scoreColor }}>{bt.score}</span>
-                <span className="text-[9px]" style={{ color: scoreColor }}>{scoreLabel}</span>
+                <span className="text-[10px]" style={{ color: scoreColor }}>{scoreLabel}</span>
               </div>
             </div>
           </div>
@@ -56,12 +56,12 @@ function ResultContent() {
 
         {/* 核心指标 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>核心指标</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>核心指标</h2>
           <div className="grid grid-cols-2 gap-2.5">
             {metrics.slice(0, 2).map(({ label, value, color }) => (
               <div key={label} className="p-4 rounded-2xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <p className="font-black text-[26px] num" style={{ color }}>{value}</p>
-                <p className="text-[11px] mt-1" style={{ color: "#4a6080" }}>{label}</p>
+                <p className="text-[11px] mt-1" style={{ color: "#94A3B8" }}>{label}</p>
               </div>
             ))}
           </div>
@@ -69,7 +69,7 @@ function ResultContent() {
             {metrics.slice(2).map(({ label, value, color }) => (
               <div key={label} className="p-3 rounded-xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <p className="font-black text-[15px] num" style={{ color }}>{value}</p>
-                <p className="text-[10px] mt-1" style={{ color: "#4a6080" }}>{label}</p>
+                <p className="text-[10px] mt-1" style={{ color: "#94A3B8" }}>{label}</p>
               </div>
             ))}
           </div>
@@ -78,8 +78,8 @@ function ResultContent() {
         {/* 收益曲线 */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="font-bold text-[13px]" style={{ color: "#4a6080" }}>收益曲线 vs 沪深300</h2>
-            <span className="text-[11px]" style={{ color: "#4a6080" }}>{bt.period}</span>
+            <h2 className="font-bold text-[13px]" style={{ color: "#94A3B8" }}>收益曲线 vs 沪深300</h2>
+            <span className="text-[11px]" style={{ color: "#94A3B8" }}>{bt.period}</span>
           </div>
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <EquityChart data={bt.equityCurve} />
@@ -88,7 +88,7 @@ function ResultContent() {
 
         {/* vs 基准对比 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>策略 vs 基准</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>策略 vs 基准</h2>
           <div className="p-4 rounded-2xl space-y-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             {[
               { label: "累计收益", strategy: `+${bt.totalReturn}%`, bench: "+38.5%" },
@@ -116,14 +116,14 @@ function ResultContent() {
         {/* 交易记录 */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="font-bold text-[13px]" style={{ color: "#4a6080" }}>交易记录</h2>
-            <span className="text-[11px]" style={{ color: "#4a6080" }}>共{bt.trades.length}笔</span>
+            <h2 className="font-bold text-[13px]" style={{ color: "#94A3B8" }}>交易记录</h2>
+            <span className="text-[11px]" style={{ color: "#94A3B8" }}>共{bt.trades.length}笔</span>
           </div>
           <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #1a2f50" }}>
             {/* 表头 */}
             <div className="grid grid-cols-5 gap-1 px-3 py-2" style={{ background: "#0a1628" }}>
               {["买入日", "卖出日", "买入价", "卖出价", "盈亏"].map((h) => (
-                <span key={h} className="text-[10px] font-semibold text-center" style={{ color: "#4a6080" }}>{h}</span>
+                <span key={h} className="text-[10px] font-semibold text-center" style={{ color: "#94A3B8" }}>{h}</span>
               ))}
             </div>
             {bt.trades.slice(0, 8).map((tr, i) => (
@@ -140,7 +140,7 @@ function ResultContent() {
             ))}
           </div>
           {bt.trades.length > 8 && (
-            <p className="text-center text-[11px] mt-2" style={{ color: "#4a6080" }}>
+            <p className="text-center text-[11px] mt-2" style={{ color: "#94A3B8" }}>
               还有 {bt.trades.length - 8} 笔交易记录…
             </p>
           )}
@@ -148,7 +148,7 @@ function ResultContent() {
 
         {/* 月度收益热力图 (简单版) */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>月度收益分布</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>月度收益分布</h2>
           <div className="grid grid-cols-6 gap-1.5">
             {bt.monthlyReturns.map((mr) => {
               const c = mr.return > 3 ? "#00E5A8" : mr.return > 0 ? "#00b885" : mr.return > -3 ? "#EF4444" : "#dc2626";
@@ -156,7 +156,7 @@ function ResultContent() {
                 : mr.return > -3 ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.25)";
               return (
                 <div key={mr.month} className="p-2 rounded-lg text-center" style={{ background: bg }}>
-                  <p className="text-[9px]" style={{ color: "#4a6080" }}>{mr.month.slice(5)}</p>
+                  <p className="text-[10px]" style={{ color: "#94A3B8" }}>{mr.month.slice(5)}</p>
                   <p className="text-[11px] font-bold num" style={{ color: c }}>
                     {mr.return > 0 ? "+" : ""}{mr.return.toFixed(1)}%
                   </p>
@@ -170,7 +170,7 @@ function ResultContent() {
         <div className="p-3 rounded-xl flex items-start gap-2"
           style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)" }}>
           <Info size={14} color="#EF4444" className="flex-shrink-0 mt-0.5" />
-          <p className="text-[11px] leading-[1.7]" style={{ color: "#4a6080" }}>
+          <p className="text-[11px] leading-[1.7]" style={{ color: "#94A3B8" }}>
             以上回测数据基于历史数据模拟，不构成任何投资建议。历史回测不代表未来收益，实际交易受手续费、滑点、流动性等因素影响，盈亏自负。
           </p>
         </div>

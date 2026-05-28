@@ -33,7 +33,7 @@ export default function HomeSignals() {
               <p className="font-bold text-[12px] num" style={{ color: "#F8FAFC" }}>
                 {formatPrice(quotes[sig.symbol]?.price ?? sig.price, marketToCurrency(sig.market))}
               </p>
-              <p className="text-[10px]" style={{ color: quotes[sig.symbol] ? "#00E5A8" : "#4a6080" }}>
+              <p className="text-[10px]" style={{ color: quotes[sig.symbol] ? "#00E5A8" : "#64748B" }}>
                 {quotes[sig.symbol] ? "实时" : sig.strength + "强度"}
               </p>
             </div>

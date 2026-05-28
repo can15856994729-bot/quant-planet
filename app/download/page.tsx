@@ -21,7 +21,7 @@ export default function DownloadPage() {
           <div>
             <p className="font-black text-[18px]" style={{ color: "#F8FAFC" }}>量化星球</p>
             <p className="text-[11px] mt-0.5" style={{ color: "#00E5A8" }}>QuantPlanet v1.1.0</p>
-            <p className="text-[11px] mt-1" style={{ color: "#4a6080" }}>量化策略 · 模拟交易 · 信号提醒</p>
+            <p className="text-[11px] mt-1" style={{ color: "#94A3B8" }}>量化策略 · 模拟交易 · 信号提醒</p>
           </div>
         </div>
 
@@ -84,7 +84,7 @@ export default function DownloadPage() {
                   <div>
                     <p className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{title}</p>
                     <p className="text-[11px] mt-0.5 font-mono" style={{ color }}>{desc}</p>
-                    <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{note}</p>
+                    <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{note}</p>
                   </div>
                 </div>
               ))}
@@ -138,7 +138,7 @@ export default function DownloadPage() {
               <Download size={18} />
               点击下载 APK
             </a>
-            <p className="text-center text-[10px] mt-2" style={{ color: "#4a6080" }}>
+            <p className="text-center text-[10px] mt-2" style={{ color: "#94A3B8" }}>
               最新构建版本 · 约 8MB · 需要 Android 7.0+
             </p>
           </div>
@@ -196,7 +196,7 @@ export default function DownloadPage() {
 
         {/* 功能特点 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2 px-1" style={{ color: "#4a6080" }}>App 功能</h2>
+          <h2 className="font-bold text-[13px] mb-2 px-1" style={{ color: "#94A3B8" }}>App 功能</h2>
           <div className="grid grid-cols-2 gap-2">
             {[
               { icon: "📈", label: "行情监控",   desc: "A/港/美三市实时数据" },
@@ -211,7 +211,7 @@ export default function DownloadPage() {
                   <span className="text-[16px]">{icon}</span>
                   <span className="font-bold text-[12px]" style={{ color: "#F8FAFC" }}>{label}</span>
                 </div>
-                <p className="text-[10px]" style={{ color: "#4a6080" }}>{desc}</p>
+                <p className="text-[10px]" style={{ color: "#94A3B8" }}>{desc}</p>
               </div>
             ))}
           </div>
@@ -221,7 +221,7 @@ export default function DownloadPage() {
         <div className="p-3 rounded-xl flex items-start gap-2"
           style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}>
           <Info size={12} color="#EF4444" className="flex-shrink-0 mt-0.5" />
-          <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+          <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
             本App仅供量化策略学习和模拟交易使用，不构成投资建议，不提供真实交易功能，历史数据不代表未来收益。
           </p>
         </div>

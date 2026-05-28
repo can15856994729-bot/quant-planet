@@ -22,11 +22,11 @@ export default function StockPriceCard({ initialStock }: Props) {
             {formatMarket(s.market)}
           </span>
           {realData && (
-            <span className="text-[8px] px-1.5 py-0.5 rounded font-bold"
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
               style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
           )}
         </div>
-        <p className="text-[11px]" style={{ color: "#4a6080" }}>{s.symbol} · {s.industry}</p>
+        <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
       </div>
       <div className="text-right">
         <p className="font-black text-[28px] num" style={{ color: "#F8FAFC" }}>

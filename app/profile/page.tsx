@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -70,7 +70,7 @@ export default function ProfilePage() {
                     style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
                     {user.riskLevel}型投资者
                   </span>
-                  <span className="text-[10px]" style={{ color: "#4a6080" }}>注册于 {user.joinedAt}</span>
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>注册于 {user.joinedAt}</span>
                 </div>
               </div>
               <button onClick={() => { logout(); router.push("/login"); }}
@@ -81,8 +81,8 @@ export default function ProfilePage() {
               </button>
             </div>
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "#0a1628" }}>
-              <User size={13} color="#4a6080" />
-              <span className="text-[12px]" style={{ color: "#4a6080" }}>
+              <User size={13} color="#94A3B8" />
+              <span className="text-[12px]" style={{ color: "#94A3B8" }}>
                 {user.phone.slice(0, 3)}****{user.phone.slice(-4)}
               </span>
             </div>
@@ -92,11 +92,11 @@ export default function ProfilePage() {
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
                 style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                <User size={24} color="#4a6080" />
+                <User size={24} color="#94A3B8" />
               </div>
               <div>
                 <p className="font-bold text-[15px]" style={{ color: "#94A3B8" }}>未登录</p>
-                <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>登录后查看完整功能</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>登录后查看完整功能</p>
               </div>
             </div>
             <Link href="/login">
@@ -114,7 +114,7 @@ export default function ProfilePage() {
         {statsItems.map(({ label, value, color }) => (
           <div key={label} className="p-2.5 rounded-xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <p className="font-black text-[16px] num" style={{ color }}>{value}</p>
-            <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
           </div>
         ))}
       </div>
@@ -141,7 +141,7 @@ export default function ProfilePage() {
       <div className="px-4 mt-4 space-y-4 pb-24">
         {menuGroups.map((group) => (
           <div key={group.title}>
-            <p className="text-[11px] font-bold mb-2 px-1" style={{ color: "#4a6080" }}>{group.title}</p>
+            <p className="text-[11px] font-bold mb-2 px-1" style={{ color: "#94A3B8" }}>{group.title}</p>
             <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #1a2f50" }}>
               {group.items.map((item, i) => (
                 <Link key={item.label} href={item.href}>
@@ -153,11 +153,11 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-xl flex items-center justify-center"
                         style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                        <item.icon size={16} color="#4a6080" />
+                        <item.icon size={16} color="#94A3B8" />
                       </div>
                       <div>
                         <p className="font-semibold text-[13px]" style={{ color: "#F8FAFC" }}>{item.label}</p>
-                        <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{item.desc}</p>
+                        <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{item.desc}</p>
                       </div>
                     </div>
                     <ChevronRight size={16} color="#1a2f50" />
@@ -173,11 +173,11 @@ export default function ProfilePage() {
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center"
               style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-              <Bell size={16} color={notifyEnabled ? "#00E5A8" : "#4a6080"} />
+              <Bell size={16} color={notifyEnabled ? "#00E5A8" : "#64748B"} />
             </div>
             <div>
               <p className="font-semibold text-[13px]" style={{ color: "#F8FAFC" }}>实时信号提醒</p>
-              <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>
+              <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>
                 {notifyEnabled ? "已开启，有信号时第一时间通知" : "已关闭"}
               </p>
             </div>
@@ -191,7 +191,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="text-center py-4">
-          <p className="text-[11px]" style={{ color: "#4a6080" }}>量化星球 QuantPlanet v1.1.0</p>
+          <p className="text-[11px]" style={{ color: "#94A3B8" }}>量化星球 QuantPlanet v1.1.0</p>
           <p className="text-[10px] mt-1" style={{ color: "#1a2f50" }}>数据仅供学习，不构成投资建议</p>
         </div>
       </div>

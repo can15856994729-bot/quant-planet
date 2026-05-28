@@ -1,4 +1,4 @@
-﻿import { Shield, AlertTriangle, Info, CheckCircle } from "lucide-react";
+import { Shield, AlertTriangle, Info, CheckCircle } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Link from "next/link";
 
@@ -91,20 +91,20 @@ export default function DisclaimerPage() {
 
         {/* 核心禁语声明 */}
         <div className="p-4 rounded-2xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-          <p className="font-bold text-[12px] mb-3" style={{ color: "#4a6080" }}>本平台承诺不使用以下误导性表述：</p>
+          <p className="font-bold text-[12px] mb-3" style={{ color: "#94A3B8" }}>本平台承诺不使用以下误导性表述：</p>
           <div className="grid grid-cols-2 gap-2">
             {["稳赚不赔", "保本保收益", "AI自动赚钱", "无风险套利", "内部推荐股", "必涨信号"].map((term) => (
               <div key={term} className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
                 style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.1)" }}>
                 <span className="text-[13px]">🚫</span>
-                <span className="text-[12px] line-through" style={{ color: "#4a6080" }}>{term}</span>
+                <span className="text-[12px] line-through" style={{ color: "#94A3B8" }}>{term}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* 更新日期 */}
-        <p className="text-center text-[11px]" style={{ color: "#4a6080" }}>
+        <p className="text-center text-[11px]" style={{ color: "#94A3B8" }}>
           本声明最后更新：2025年01月01日
         </p>
 

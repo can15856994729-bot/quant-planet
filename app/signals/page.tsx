@@ -85,7 +85,7 @@ export default function SignalsPage() {
               background: notifyOn ? "rgba(0,229,168,0.12)" : "rgba(148,163,184,0.08)",
               border: `1px solid ${notifyOn ? "rgba(0,229,168,0.25)" : "#1a2f50"}`,
             }}>
-            {notifyOn ? <Bell size={16} color="#00E5A8" /> : <BellOff size={16} color="#4a6080" />}
+            {notifyOn ? <Bell size={16} color="#00E5A8" /> : <BellOff size={16} color="#94A3B8" />}
           </button>
         }
       />
@@ -103,7 +103,7 @@ export default function SignalsPage() {
                 border: `1px solid ${isActive ? color : "#1a2f50"}`,
               }}>
               <p className="font-black text-[20px] num" style={{ color }}>{value}</p>
-              <p className="text-[10px] mt-0.5" style={{ color: isActive ? color : "#4a6080" }}>{label}</p>
+              <p className="text-[10px] mt-0.5" style={{ color: isActive ? color : "#64748B" }}>{label}</p>
             </button>
           );
         })}
@@ -113,12 +113,12 @@ export default function SignalsPage() {
       <div className="mx-4 mt-3 px-3 py-2 rounded-xl flex items-center justify-between"
         style={{ background: notifyOn ? "rgba(0,229,168,0.06)" : "#0a1628", border: `1px solid ${notifyOn ? "rgba(0,229,168,0.12)" : "#1a2f50"}` }}>
         <div className="flex items-center gap-2">
-          {notifyOn ? <Bell size={13} color="#00E5A8" /> : <BellOff size={13} color="#4a6080" />}
-          <span className="text-[12px]" style={{ color: notifyOn ? "#00E5A8" : "#4a6080" }}>
+          {notifyOn ? <Bell size={13} color="#00E5A8" /> : <BellOff size={13} color="#94A3B8" />}
+          <span className="text-[12px]" style={{ color: notifyOn ? "#00E5A8" : "#64748B" }}>
             {notifyOn ? "实时信号提醒已开启" : "信号提醒已关闭"}
           </span>
         </div>
-        <span className="text-[10px]" style={{ color: "#4a6080" }}>点击铃铛切换</span>
+        <span className="text-[10px]" style={{ color: "#94A3B8" }}>点击铃铛切换</span>
       </div>
 
       {/* 筛选 tab */}
@@ -130,7 +130,7 @@ export default function SignalsPage() {
               className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold"
               style={{
                 background: isActive ? `${color}20` : "#0d1f3c",
-                color:      isActive ? color : "#4a6080",
+                color:      isActive ? color : "#64748B",
                 border:     `1px solid ${isActive ? color : "#1a2f50"}`,
               }}>
               {label}
@@ -148,7 +148,7 @@ export default function SignalsPage() {
           </span>
           <button onClick={() => setFilter("全部")}
             className="text-[10px] px-2 py-0.5 rounded"
-            style={{ color: "#4a6080", background: "#0d1f3c" }}>
+            style={{ color: "#94A3B8", background: "#0d1f3c" }}>
             清除
           </button>
         </div>
@@ -159,7 +159,7 @@ export default function SignalsPage() {
         {filtered.length === 0 && (
           <div className="text-center py-16">
             <Activity size={40} color="#1a2f50" className="mx-auto mb-3" />
-            <p className="font-semibold" style={{ color: "#4a6080" }}>暂无相关信号</p>
+            <p className="font-semibold" style={{ color: "#94A3B8" }}>暂无相关信号</p>
           </div>
         )}
         {filtered.map((sig) => {
@@ -193,13 +193,13 @@ export default function SignalsPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="text-[10px]" style={{ color: "#4a6080" }}>{sig.triggeredAt}</span>
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>{sig.triggeredAt}</span>
                 </div>
 
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-1.5">
                     <span className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>{sig.name}</span>
-                    <span className="text-[9px] px-1 py-0.5 rounded font-bold"
+                    <span className="text-[10px] px-1 py-0.5 rounded font-bold"
                       style={{ background: `${marketColor(sig.market)}18`, color: marketColor(sig.market) }}>
                       {formatMarket(sig.market)}
                     </span>
@@ -209,7 +209,7 @@ export default function SignalsPage() {
                       {formatPrice(quotes[sig.symbol]?.price ?? sig.price, marketToCurrency(sig.market))}
                     </p>
                     {quotes[sig.symbol] && (
-                      <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                      <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                         style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                     )}
                   </div>
@@ -222,7 +222,7 @@ export default function SignalsPage() {
                     style={{ background: "#0a1628", color: "#3B82F6", border: "1px solid #1a2f50" }}>
                     {sig.strategy}
                   </span>
-                  <span className="text-[10px]" style={{ color: "#4a6080" }}>
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>
                     {sig.symbol} · 点击查看详情 →
                   </span>
                 </div>
@@ -236,7 +236,7 @@ export default function SignalsPage() {
       <div className="mx-4 mb-6 p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.12)" }}>
         <div className="flex items-start gap-2">
           <Info size={12} color="#EF4444" className="flex-shrink-0 mt-0.5" />
-          <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+          <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
             ⚠️ 以上信号均为量化模型基于历史数据计算，不构成投资建议。信号存在滞后性和误判，历史信号不代表未来表现，买卖决策风险自担。
           </p>
         </div>

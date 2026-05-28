@@ -39,7 +39,7 @@ function BacktestForm() {
 
         {/* 1. 选择股票 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>① 选择股票</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>① 选择股票</label>
           <div className="grid grid-cols-3 gap-2">
             {MOCK_STOCKS.slice(0, 6).map((s) => (
               <button key={s.symbol} onClick={() => setSymbol(s.symbol)}
@@ -49,7 +49,7 @@ function BacktestForm() {
                   border: `1px solid ${symbol === s.symbol ? "#00E5A8" : "#1a2f50"}`,
                 }}>
                 <p className="font-bold text-[12px]" style={{ color: symbol === s.symbol ? "#00E5A8" : "#F8FAFC" }}>{s.name}</p>
-                <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{s.symbol}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{s.symbol}</p>
               </button>
             ))}
           </div>
@@ -57,7 +57,7 @@ function BacktestForm() {
 
         {/* 2. 选择策略 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>② 选择策略</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>② 选择策略</label>
           <div className="space-y-2">
             {MOCK_STRATEGIES.map((st) => (
               <button key={st.id} onClick={() => setStrategyId(st.id)}
@@ -68,7 +68,7 @@ function BacktestForm() {
                 }}>
                 <div className="text-left">
                   <p className="font-bold text-[13px]" style={{ color: strategyId === st.id ? "#00E5A8" : "#F8FAFC" }}>{st.name}</p>
-                  <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{st.marketCondition} · 胜率{st.winRate}%</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{st.marketCondition} · 胜率{st.winRate}%</p>
                 </div>
                 <p className="font-black text-[14px]" style={{ color: "#00E5A8" }}>+{st.annualReturn}%</p>
               </button>
@@ -78,7 +78,7 @@ function BacktestForm() {
 
         {/* 3. 时间范围 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>③ 回测时间段</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>③ 回测时间段</label>
           <div className="grid grid-cols-4 gap-2">
             {TIME_RANGES.map((t) => (
               <button key={t} onClick={() => setTimeRange(t)}
@@ -96,7 +96,7 @@ function BacktestForm() {
 
         {/* 4. 初始资金 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>④ 初始资金（元）</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>④ 初始资金（元）</label>
           <div className="flex gap-2">
             {[50000, 100000, 500000].map((v) => (
               <button key={v} onClick={() => setCapital(v)}
@@ -114,7 +114,7 @@ function BacktestForm() {
 
         {/* 5. 止盈止损 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>⑤ 止盈止损设置</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>⑤ 止盈止损设置</label>
           <div className="p-4 rounded-2xl space-y-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <div className="flex items-center justify-between">
               <span className="text-[13px]" style={{ color: "#94A3B8" }}>止损比例</span>
@@ -124,7 +124,7 @@ function BacktestForm() {
                     className="px-2.5 py-1 rounded-lg text-[12px] font-bold"
                     style={{
                       background: stopLoss === v ? "rgba(239,68,68,0.15)" : "#0a1628",
-                      color: stopLoss === v ? "#EF4444" : "#4a6080",
+                      color: stopLoss === v ? "#EF4444" : "#64748B",
                       border: `1px solid ${stopLoss === v ? "#EF4444" : "#1a2f50"}`,
                     }}>
                     -{v}%
@@ -140,7 +140,7 @@ function BacktestForm() {
                     className="px-2.5 py-1 rounded-lg text-[12px] font-bold"
                     style={{
                       background: takeProfit === v ? "rgba(0,229,168,0.15)" : "#0a1628",
-                      color: takeProfit === v ? "#00E5A8" : "#4a6080",
+                      color: takeProfit === v ? "#00E5A8" : "#64748B",
                       border: `1px solid ${takeProfit === v ? "#00E5A8" : "#1a2f50"}`,
                     }}>
                     +{v}%
@@ -153,7 +153,7 @@ function BacktestForm() {
 
         {/* 6. 手续费 */}
         <div>
-          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#4a6080" }}>⑥ 手续费率</label>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: "#94A3B8" }}>⑥ 手续费率</label>
           <div className="grid grid-cols-3 gap-2">
             {FEE_OPTIONS.map((f) => (
               <button key={f} onClick={() => setFee(f)}
@@ -181,7 +181,7 @@ function BacktestForm() {
             { label: "手续费", value: `${fee}%` },
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between py-1.5" style={{ borderBottom: "1px solid #1a2f50" }}>
-              <span className="text-[12px]" style={{ color: "#4a6080" }}>{label}</span>
+              <span className="text-[12px]" style={{ color: "#94A3B8" }}>{label}</span>
               <span className="text-[12px] font-semibold" style={{ color: "#F8FAFC" }}>{value}</span>
             </div>
           ))}
@@ -192,12 +192,12 @@ function BacktestForm() {
           className="w-full py-4 rounded-2xl font-black text-[16px] glow-green active:opacity-85 transition-opacity"
           style={{
             background: running ? "#0d1f3c" : "linear-gradient(135deg, #00E5A8, #00b885)",
-            color: running ? "#4a6080" : "#07111F",
+            color: running ? "#64748B" : "#07111F",
           }}>
           {running ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: "#4a6080", borderTopColor: "transparent" }} />
+                style={{ borderColor: "#94A3B8", borderTopColor: "transparent" }} />
               回测运行中…
             </span>
           ) : (

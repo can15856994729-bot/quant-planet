@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
@@ -34,32 +34,32 @@ export default function HomePage() {
       <div className="px-4 mb-5">
         <div className="grid grid-cols-2 gap-2.5">
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>我的真实账户</p>
+            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>我的真实账户</p>
             <p className="font-black text-[20px] num" style={{ color: "#F8FAFC" }}>¥0.00</p>
-            <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>
+            <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>
               今日 <span style={{ color: "#94A3B8" }} className="font-semibold">¥0.00</span>
             </p>
           </div>
           <Link href="/sim-trading">
             <div className="p-3 rounded-2xl h-full" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-              <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>我的模拟账户</p>
+              <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>我的模拟账户</p>
               <p className="font-black text-[20px] num up">+{MOCK_SIM_ACCOUNT.totalReturnPct.toFixed(2)}%</p>
-              <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>今日 <span className="up font-semibold">+{MOCK_SIM_ACCOUNT.todayPnlPct.toFixed(2)}%</span></p>
+              <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>今日 <span className="up font-semibold">+{MOCK_SIM_ACCOUNT.todayPnlPct.toFixed(2)}%</span></p>
             </div>
           </Link>
           <Link href="/signals">
             <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-              <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>今日信号</p>
+              <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>今日信号</p>
               <p className="font-black text-[20px] num up">{buyCount} 买入</p>
               <p className="text-[12px] font-bold down mt-0.5">{sellCount} 卖出</p>
             </div>
           </Link>
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>当前风险</p>
+            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>当前风险</p>
             <p className="font-black text-[20px]" style={{ color: "#FACC15" }}>中等</p>
             <div className="flex items-center gap-1 mt-0.5">
               <ShieldAlert size={11} color="#FACC15" />
-              <span className="text-[11px]" style={{ color: "#4a6080" }}>仓位 58.8%</span>
+              <span className="text-[11px]" style={{ color: "#94A3B8" }}>仓位 58.8%</span>
             </div>
           </div>
         </div>
@@ -74,7 +74,7 @@ export default function HomePage() {
           <h2 className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>
             <span style={{ color: "#FACC15", marginRight: 6 }}>▌</span>策略信号提醒
           </h2>
-          <Link href="/signals" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#4a6080" }}>
+          <Link href="/signals" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#94A3B8" }}>
             全部 <ChevronRight size={13} />
           </Link>
         </div>
@@ -87,7 +87,7 @@ export default function HomePage() {
           <h2 className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>
             <span style={{ color: "#3B82F6", marginRight: 6 }}>▌</span>我的自选股
           </h2>
-          <Link href="/watchlist" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#4a6080" }}>
+          <Link href="/watchlist" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#94A3B8" }}>
             全部 <ChevronRight size={13} />
           </Link>
         </div>
@@ -100,7 +100,7 @@ export default function HomePage() {
           <h2 className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>
             <span style={{ color: "#00E5A8", marginRight: 6 }}>▌</span>热门策略
           </h2>
-          <Link href="/strategies" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#4a6080" }}>
+          <Link href="/strategies" className="flex items-center gap-0.5 text-[12px]" style={{ color: "#94A3B8" }}>
             全部 <ChevronRight size={13} />
           </Link>
         </div>
@@ -113,13 +113,13 @@ export default function HomePage() {
                     style={{ background: `${riskColor(st.riskLevel)}18`, color: riskColor(st.riskLevel) }}>
                     {st.riskLevel}风险
                   </span>
-                  <BarChart3 size={13} color="#4a6080" />
+                  <BarChart3 size={13} color="#94A3B8" />
                 </div>
                 <p className="font-bold text-[12px] mb-2" style={{ color: "#F8FAFC" }}>{st.name}</p>
-                <p className="text-[10px] mb-0.5" style={{ color: "#4a6080" }}>年化回测</p>
+                <p className="text-[10px] mb-0.5" style={{ color: "#94A3B8" }}>年化回测</p>
                 <p className="font-black text-[20px] up">+{st.annualReturn}%</p>
                 <div className="flex justify-between mt-1">
-                  <span className="text-[10px]" style={{ color: "#4a6080" }}>胜率 {st.winRate}%</span>
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>胜率 {st.winRate}%</span>
                   <span className="text-[10px] down">回撤 {st.maxDrawdown}%</span>
                 </div>
               </div>
@@ -160,7 +160,7 @@ export default function HomePage() {
 
       {/* 免责声明 */}
       <div className="mx-4 mb-6 p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)" }}>
-        <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+        <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
           ⚠️ 本产品仅用于量化策略研究、模拟交易和数据分析，不构成任何投资建议。股市有风险，投资需谨慎。历史回测不代表未来收益。
         </p>
       </div>

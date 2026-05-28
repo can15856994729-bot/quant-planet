@@ -1,4 +1,4 @@
-﻿import { notFound } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { BarChart3, Info } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
@@ -41,12 +41,12 @@ export default async function StockDetailPage({ params }: { params: Promise<{ sy
 
         {/* 基本面数据 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>基本面数据</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>基本面数据</h2>
           <div className="grid grid-cols-3 gap-2">
             {fundamentals.map(({ label, value }) => (
               <div key={label} className="p-3 rounded-xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>
-                <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
               </div>
             ))}
           </div>
@@ -54,7 +54,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ sy
 
         {/* 技术指标快览 */}
         <div>
-          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#4a6080" }}>技术指标参考</h2>
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>技术指标参考</h2>
           <div className="p-4 rounded-2xl space-y-2.5" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             {[
               { label: "MA5 / MA20",  value: "金叉信号",   color: "#00E5A8", note: "短期趋势偏强" },
@@ -67,7 +67,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ sy
                 <span className="text-[12px] w-24" style={{ color: "#94A3B8" }}>{label}</span>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-[13px]" style={{ color }}>{value}</span>
-                  <span className="text-[10px]" style={{ color: "#4a6080" }}>{note}</span>
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>{note}</span>
                 </div>
               </div>
             ))}
@@ -78,7 +78,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ sy
         <div className="p-3 rounded-xl flex items-start gap-2"
           style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}>
           <Info size={12} color="#EF4444" className="flex-shrink-0 mt-0.5" />
-          <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+          <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
             以上技术指标基于历史数据计算，仅供参考，不构成投资建议。
           </p>
         </div>

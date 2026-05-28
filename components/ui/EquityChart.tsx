@@ -11,8 +11,8 @@ export default function EquityChart({ data }: Props) {
     <ResponsiveContainer width="100%" height={200}>
       <LineChart data={sampled} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-        <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 10 }} tickFormatter={(v) => v.slice(5)} interval="preserveStartEnd" />
-        <YAxis tick={{ fill: "#4a6080", fontSize: 10 }} tickFormatter={(v) => `${v.toFixed(0)}`} />
+        <XAxis dataKey="date" tick={{ fill: "#64748B", fontSize: 10 }} tickFormatter={(v) => v.slice(5)} interval="preserveStartEnd" />
+        <YAxis tick={{ fill: "#64748B", fontSize: 10 }} tickFormatter={(v) => `${v.toFixed(0)}`} />
         <Tooltip
           contentStyle={{ background: "#0d1f3c", border: "1px solid #1a2f50", borderRadius: 8, fontSize: 12 }}
           labelStyle={{ color: "#94A3B8" }}

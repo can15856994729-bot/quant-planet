@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, Info, RefreshCw } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
@@ -196,7 +196,7 @@ export default function AIAssistantPage() {
 
       {/* 预设问题 */}
       <div className="px-4 pt-3 pb-2">
-        <p className="text-[11px] mb-2" style={{ color: "#4a6080" }}>常见问题快速提问：</p>
+        <p className="text-[11px] mb-2" style={{ color: "#94A3B8" }}>常见问题快速提问：</p>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {PRESET_QUESTIONS.map((q) => (
             <button key={q} onClick={() => sendMessage(q)}
@@ -230,7 +230,7 @@ export default function AIAssistantPage() {
                 {renderContent(msg.content)}
               </div>
               <p className={`text-[10px] mt-1 ${msg.role === "user" ? "text-right" : "text-left"}`}
-                style={{ color: "#4a6080" }}>{msg.timestamp}</p>
+                style={{ color: "#94A3B8" }}>{msg.timestamp}</p>
             </div>
           </div>
         ))}
@@ -258,7 +258,7 @@ export default function AIAssistantPage() {
       <div className="mx-4 mb-2 px-3 py-2 rounded-xl flex items-center gap-2"
         style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}>
         <Info size={11} color="#EF4444" className="flex-shrink-0" />
-        <p className="text-[10px]" style={{ color: "#4a6080" }}>
+        <p className="text-[10px]" style={{ color: "#94A3B8" }}>
           策略助手仅供学习参考，不构成投资建议，投资决策风险自担。
         </p>
       </div>
@@ -281,7 +281,7 @@ export default function AIAssistantPage() {
               background: input.trim() && !thinking ? "linear-gradient(135deg, #00E5A8, #00b885)" : "#0a1628",
               border: `1px solid ${input.trim() && !thinking ? "#00E5A8" : "#1a2f50"}`,
             }}>
-            <Send size={16} color={input.trim() && !thinking ? "#07111F" : "#4a6080"} />
+            <Send size={16} color={input.trim() && !thinking ? "#07111F" : "#64748B"} />
           </button>
         </div>
       </div>
