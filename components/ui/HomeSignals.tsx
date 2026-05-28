@@ -12,8 +12,9 @@ export default function HomeSignals() {
   return (
     <div className="space-y-2">
       {MOCK_SIGNALS.slice(0, 3).map((sig) => (
-        <Link key={sig.id} href="/signals">
-          <div className="p-3 rounded-2xl flex items-start gap-3"
+        // 直接跳到对应股票详情页，不再跳到信号列表
+        <Link key={sig.id} href={`/stock/${sig.symbol}`}>
+          <div className="p-3 rounded-2xl flex items-start gap-3 active:opacity-70"
             style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
               style={{ background: signalTypeColor(sig.type) }} />
@@ -32,7 +33,9 @@ export default function HomeSignals() {
               <p className="font-bold text-[12px] num" style={{ color: "#F8FAFC" }}>
                 {formatPrice(quotes[sig.symbol]?.price ?? sig.price, marketToCurrency(sig.market))}
               </p>
-              <p className="text-[10px]" style={{ color: "#4a6080" }}>{sig.strength}强度</p>
+              <p className="text-[10px]" style={{ color: quotes[sig.symbol] ? "#00E5A8" : "#4a6080" }}>
+                {quotes[sig.symbol] ? "实时" : sig.strength + "强度"}
+              </p>
             </div>
           </div>
         </Link>
