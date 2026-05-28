@@ -16,6 +16,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -47,6 +50,17 @@ jobs:
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
+      - name: Publish APK to public/downloads (serves via app.quantplanetapp.com)
+        run: |
+          mkdir -p public/downloads
+          cp android/app/build/outputs/apk/debug/app-debug.apk public/downloads/QuantPlanet.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/downloads/QuantPlanet.apk
+          git diff --cached --quiet || git commit -m "chore: update APK build [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -69,11 +83,17 @@ jobs:
 
             ---
 
-            ### 📦 Android 安装方法
+            ### 📦 Android 安装方法（推荐直接用网址下载）
+
+            **方式一：手机浏览器直接下载（最简单）**
+            👉 **https://app.quantplanetapp.com/downloads/QuantPlanet.apk**
+            1. 手机浏览器打开上方链接，点击即开始下载
+            2. 下载完成后点击安装，若提示【来自未知来源】点【仍然安装】
+            3. 安装完成，桌面出现【量化星球】图标即可使用
+
+            **方式二：从本 Release 下载**
             1. 点击下方 `app-debug.apk` 下载安装包
             2. 打开手机文件管理器找到该文件，点击安装
-            3. 若提示【来自未知来源】，点击【仍然安装】或【允许】
-            4. 安装完成，桌面出现【量化星球】图标即可使用
 
             ---
 

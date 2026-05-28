@@ -121,8 +121,8 @@ export default function DownloadPage() {
             </div>
             <div className="space-y-2.5">
               {[
-                { step: "1", text: '点击下方【下载 APK】按钮下载安装包' },
-                { step: "2", text: '华为浏览器提示允许安装未知来源，点击【仍然安装】' },
+                { step: "1", text: '点击下方绿色按钮，浏览器直接开始下载' },
+                { step: "2", text: '下载完成后点击安装，若提示【来自未知来源】点【仍然安装】' },
                 { step: "3", text: '安装完成后，桌面出现【量化星球】图标' },
               ].map(({ step, text }) => (
                 <div key={step} className="flex items-start gap-2.5">
@@ -132,14 +132,14 @@ export default function DownloadPage() {
                 </div>
               ))}
             </div>
-            <a href="/downloads/QuantPlanet.apk" download="QuantPlanet.apk"
+            <a href="https://app.quantplanetapp.com/downloads/QuantPlanet.apk" download="QuantPlanet.apk"
               className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-black text-[14px] mt-4 glow-green"
               style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
               <Download size={18} />
-              下载 APK 安装包
+              点击下载 APK
             </a>
             <p className="text-center text-[10px] mt-2" style={{ color: "#4a6080" }}>
-              版本 v1.1.0 · 约 8MB · 需要 Android 7.0+
+              最新构建版本 · 约 8MB · 需要 Android 7.0+
             </p>
           </div>
 
@@ -180,7 +180,7 @@ export default function DownloadPage() {
             <p className="text-[12px] mb-3" style={{ color: "#94A3B8" }}>任选一种方式：</p>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: "📦", label: "下载 APK", href: "/downloads/QuantPlanet.apk", color: "#00E5A8" },
+                { icon: "📦", label: "下载 APK", href: "https://app.quantplanetapp.com/downloads/QuantPlanet.apk", color: "#00E5A8" },
                 { icon: "🌐", label: "网页版", href: VERCEL_URL, color: "#3B82F6" },
               ].map(({ icon, label, href, color }) => (
                 <a key={label} href={href} download={label === "下载 APK" ? "QuantPlanet.apk" : undefined}
