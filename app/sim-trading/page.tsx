@@ -189,7 +189,7 @@ export default function SimTradingPage() {
 
       {/* 模拟下单弹窗 */}
       {showOrder && (
-        <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.7)" }}
+        <div className="fixed inset-0 z-[100] flex items-end" style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowOrder(false); }}>
           {/* 弹窗：最高 90vh，内容滚动，确认按钮固定底部 */}
           <div className="w-full max-w-[480px] mx-auto rounded-t-3xl flex flex-col"
@@ -296,7 +296,7 @@ export default function SimTradingPage() {
 
             {/* 确认按钮（固定底部，永远可见） */}
             {!orderSuccess && (
-              <div className="flex-shrink-0 px-5 pt-3 pb-8" style={{ borderTop: "1px solid #1a2f50" }}>
+              <div className="flex-shrink-0 px-5 pt-3 pb-safe" style={{ borderTop: "1px solid #1a2f50", paddingBottom: "max(2rem, env(safe-area-inset-bottom, 2rem))" }}>
                 <button onClick={handleOrder}
                   className="w-full py-4 rounded-2xl font-black text-[15px] glow-green"
                   style={{
