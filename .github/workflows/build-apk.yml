@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'public/downloads/**'   # APK 回推时不再触发新构建，避免无限循环
+      - 'public/downloads/**'
   workflow_dispatch:
 
 permissions:
@@ -52,15 +52,17 @@ jobs:
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
-      - name: Publish APK to public/downloads for direct download
+      - name: Publish APK to public/downloads
         run: |
           mkdir -p public/downloads
           cp android/app/build/outputs/apk/debug/app-debug.apk public/downloads/QuantPlanet.apk
+          echo "=== APK file ===" && ls -lh public/downloads/QuantPlanet.apk
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/downloads/QuantPlanet.apk
-          git diff --cached --quiet || git commit -m "update downloadable apk"
-          git pull --rebase origin main
+          echo "=== git status before add ===" && git status public/downloads/
+          git add -f public/downloads/QuantPlanet.apk
+          echo "=== git status after add ===" && git status public/downloads/
+          git diff --cached --quiet || git commit -m "update downloadable apk [skip ci]"
           git push origin main
 
       - name: Upload APK artifact
@@ -85,7 +87,7 @@ jobs:
 
             ---
 
-            ### 📦 Android 安装方法（推荐直接用网址下载）
+            ### 📦 Android 安装方法
 
             **方式一：手机浏览器直接下载（最简单）**
             👉 **https://app.quantplanetapp.com/downloads/QuantPlanet.apk**
