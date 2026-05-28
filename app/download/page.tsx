@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Download, Smartphone, Apple, Globe, ArrowLeft, CheckCircle, ExternalLink, BarChart3, Info } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 
-const VERCEL_URL = "https://quant-planet-64gr.vercel.app";
+const VERCEL_URL = "https://quantplanetapp.com";
 
 export default function DownloadPage() {
   return (
@@ -151,7 +151,7 @@ export default function DownloadPage() {
             </div>
             <div className="space-y-2.5">
               {[
-                { step: "1", text: "用 Chrome 浏览器打开 quant-planet-64gr.vercel.app" },
+                { step: "1", text: "用 Chrome 浏览器打开 quantplanetapp.com" },
                 { step: "2", text: "点击右上角菜单（三个点）→ 【添加到主屏幕】" },
                 { step: "3", text: "或地址栏右侧出现安装提示，点击【安装】" },
               ].map(({ step, text }) => (
