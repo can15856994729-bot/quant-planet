@@ -132,7 +132,7 @@ export default function DownloadPage() {
                 </div>
               ))}
             </div>
-            <a href="https://app.quantplanetapp.com/downloads/QuantPlanet.apk" download="QuantPlanet.apk"
+            <a href="/downloads/QuantPlanet.apk" download="QuantPlanet.apk"
               className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-black text-[14px] mt-4 glow-green"
               style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
               <Download size={18} />
@@ -180,7 +180,7 @@ export default function DownloadPage() {
             <p className="text-[12px] mb-3" style={{ color: "#94A3B8" }}>任选一种方式：</p>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: "📦", label: "下载 APK", href: "https://app.quantplanetapp.com/downloads/QuantPlanet.apk", color: "#00E5A8" },
+                { icon: "📦", label: "下载 APK", href: "/downloads/QuantPlanet.apk", color: "#00E5A8" },
                 { icon: "🌐", label: "网页版", href: VERCEL_URL, color: "#3B82F6" },
               ].map(({ icon, label, href, color }) => (
                 <a key={label} href={href} download={label === "下载 APK" ? "QuantPlanet.apk" : undefined}
