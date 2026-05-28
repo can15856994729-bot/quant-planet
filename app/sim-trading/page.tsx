@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { TrendingUp, TrendingDown, Plus, Minus, PieChart, Clock, Info, ChevronRight } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
-import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
+import { MOCK_SIM_ACCOUNT, MOCK_STOCKS } from "@/lib/mock-data";
 import { formatPrice, formatPct, pnlColor, marketColor, formatMarket, marketToCurrency } from "@/lib/utils";
+import type { Stock } from "@/types";
 
 type Tab = "持仓" | "成交" | "下单";
 
@@ -15,6 +16,24 @@ export default function SimTradingPage() {
   const [orderShares, setOrderShares] = useState("100");
   const [orderPrice, setOrderPrice] = useState("1680.50");
   const [orderSuccess, setOrderSuccess] = useState(false);
+
+  // 选股
+  const [selectedStock, setSelectedStock] = useState<Stock>(MOCK_STOCKS[0]);
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickSearch, setPickSearch] = useState("");
+
+  const pickerList = useMemo(() =>
+    MOCK_STOCKS.filter((s) =>
+      s.name.includes(pickSearch) ||
+      s.symbol.toLowerCase().includes(pickSearch.toLowerCase())
+    ), [pickSearch]);
+
+  function selectStock(s: Stock) {
+    setSelectedStock(s);
+    setOrderPrice(s.price.toFixed(2));
+    setShowPicker(false);
+    setPickSearch("");
+  }
 
   const acc = MOCK_SIM_ACCOUNT;
   const stockRatio = ((acc.totalValue - acc.cash) / acc.totalValue * 100).toFixed(1);
@@ -234,14 +253,25 @@ export default function SimTradingPage() {
                   </div>
 
                   <div className="space-y-3">
-                    {/* 股票选择 */}
-                    <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
+                    {/* 股票选择（可点击） */}
+                    <button className="w-full flex items-center justify-between p-3 rounded-xl active:opacity-70"
+                      style={{ background: "#0a1628", border: "1px solid #1a2f50" }}
+                      onClick={() => setShowPicker(true)}>
                       <span className="text-[13px]" style={{ color: "#94A3B8" }}>股票</span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>贵州茅台 (600519)</span>
-                        <ChevronRight size={14} color="#94A3B8" />
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
+                          style={{ background: `${marketColor(selectedStock.market)}18`, color: marketColor(selectedStock.market) }}>
+                          {formatMarket(selectedStock.market)}
+                        </span>
+                        <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>
+                          {selectedStock.name}
+                        </span>
+                        <span className="text-[11px]" style={{ color: "#94A3B8" }}>
+                          {selectedStock.symbol}
+                        </span>
+                        <ChevronRight size={14} color="#00E5A8" />
                       </div>
-                    </div>
+                    </button>
 
                     {/* 价格 */}
                     <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
@@ -309,6 +339,93 @@ export default function SimTradingPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 选股面板 */}
+      {showPicker && (
+        <div className="fixed inset-0 z-[110] flex items-end" style={{ background: "rgba(0,0,0,0.8)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowPicker(false); setPickSearch(""); } }}>
+          <div className="w-full max-w-[480px] mx-auto rounded-t-3xl flex flex-col"
+            style={{ background: "#0a1628", border: "1px solid #1a2f50", maxHeight: "80vh" }}>
+
+            {/* 头部 */}
+            <div className="flex-shrink-0 px-5 pt-4 pb-3">
+              <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#1a2f50" }} />
+              <div className="flex items-center justify-between mb-3">
+                <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>选择股票</p>
+                <button onClick={() => { setShowPicker(false); setPickSearch(""); }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center"
+                  style={{ background: "#1a2f50" }}>
+                  <X size={14} color="#94A3B8" />
+                </button>
+              </div>
+              {/* 搜索框 */}
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+                <Search size={14} color="#94A3B8" />
+                <input
+                  autoFocus
+                  className="flex-1 bg-transparent text-[14px] outline-none"
+                  style={{ color: "#F8FAFC" }}
+                  placeholder="搜索股票名称或代码…"
+                  value={pickSearch}
+                  onChange={(e) => setPickSearch(e.target.value)}
+                />
+                {pickSearch && (
+                  <button onClick={() => setPickSearch("")}>
+                    <X size={13} color="#64748B" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 股票列表 */}
+            <div className="flex-1 overflow-y-auto px-5 pb-8 space-y-2">
+              {pickerList.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-[13px]" style={{ color: "#64748B" }}>未找到相关股票</p>
+                </div>
+              ) : (
+                pickerList.map((s) => (
+                  <button key={s.symbol}
+                    className="w-full flex items-center justify-between p-3 rounded-xl active:opacity-70"
+                    style={{
+                      background: selectedStock.symbol === s.symbol ? "rgba(0,229,168,0.08)" : "#0d1f3c",
+                      border: `1px solid ${selectedStock.symbol === s.symbol ? "rgba(0,229,168,0.3)" : "#1a2f50"}`,
+                    }}
+                    onClick={() => selectStock(s)}>
+                    {/* 左：名称 + 代码 */}
+                    <div className="flex items-center gap-2.5 text-left">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[13px] flex-shrink-0"
+                        style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
+                        {s.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
+                          <span className="text-[10px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
+                            {formatMarket(s.market)}
+                          </span>
+                        </div>
+                        <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol}</p>
+                      </div>
+                    </div>
+                    {/* 右：价格 + 涨跌 */}
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
+                        {formatPrice(s.price, s.currency)}
+                      </p>
+                      <p className="text-[11px] num font-semibold" style={{ color: pnlColor(s.changePct) }}>
+                        {formatPct(s.changePct)}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
