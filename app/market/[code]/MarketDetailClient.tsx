@@ -1,16 +1,18 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw, TrendingUp, TrendingDown } from "lucide-react";
 import {
   AreaChart, Area, ComposedChart, Bar, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Cell,
 } from "recharts";
-import { generateKLines } from "@/lib/mock-data";
+import { generateKLines, generateIntraday } from "@/lib/mock-data";
 import { formatPct, pnlColor } from "@/lib/utils";
 import type { Index } from "@/types";
 
-const PERIODS = ["5日", "1月", "3月", "1年"] as const;
+// ── 周期定义 ─────────────────────────────────────────────────────
+const PERIODS = ["分时", "1日", "5日", "10日", "1月", "3月", "半年", "1年", "全部"] as const;
 type Period = typeof PERIODS[number];
+const INTRADAY_PERIODS: Period[] = ["分时", "1日"];
 
 const INDICATOR_LIST = ["MA", "MACD", "RSI", "KDJ", "BOLL"] as const;
 
@@ -64,17 +66,19 @@ interface Props {
 // ─── 组件 ────────────────────────────────────────────────────────
 
 export default function MarketDetailClient({ code, initialIndex }: Props) {
-  const [index, setIndex]     = useState<Index>(initialIndex);
+  const [index, setIndex]       = useState<Index>(initialIndex);
   const [realData, setRealData] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [period, setPeriod]   = useState<Period>("3月");
+  const [loading, setLoading]   = useState(false);
+  const [period, setPeriod]     = useState<Period>("3月");
   const [activeInds, setActiveInds] = useState<string[]>(["MA"]);
+
+  const isIntraday = INTRADAY_PERIODS.includes(period);
 
   // 实时行情
   const fetchQuote = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await fetch("/api/market");
+      const res  = await fetch("/api/market", { cache: "no-store" });
       const json = await res.json();
       if (json.ok && Array.isArray(json.data)) {
         const found = (json.data as Index[]).find((i) => i.code === code);
@@ -86,9 +90,41 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
 
   useEffect(() => { fetchQuote(); }, [fetchQuote]);
 
-  // K 线数据
-  const days = period === "5日" ? 5 : period === "1月" ? 30 : period === "3月" ? 90 : 365;
-  const klines = generateKLines(index.value || initialIndex.value, days);
+  // App 回到前台自动刷新
+  useEffect(() => {
+    const handler = () => { if (document.visibilityState === "visible") fetchQuote(); };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [fetchQuote]);
+
+  const basePrice = index.value || initialIndex.value;
+
+  // ── 分时数据 ─────────────────────────────────────────────────
+  const { points: intradayPoints, prevClose } = useMemo(
+    () => generateIntraday(basePrice),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [basePrice, period]
+  );
+
+  // 只在整点/半点显示 X 轴刻度
+  const KEY_TIMES = new Set(["09:30","10:00","10:30","11:00","11:30","13:00","13:30","14:00","14:30","15:00"]);
+
+  // 分时价格统计
+  const lastIntraday   = intradayPoints[intradayPoints.length - 1]?.price ?? basePrice;
+  const intradayUp     = lastIntraday >= prevClose;
+  const intradayColor  = intradayUp ? "#00E5A8" : "#EF4444";
+  const intradayMin    = Math.min(...intradayPoints.map(p => p.price), prevClose) * 0.999;
+  const intradayMax    = Math.max(...intradayPoints.map(p => p.price), prevClose) * 1.001;
+
+  // ── K线数据 ─────────────────────────────────────────────────
+  const days = period === "5日" ? 5 : period === "10日" ? 10 :
+               period === "1月" ? 30 : period === "3月" ? 90 :
+               period === "半年" ? 180 : period === "1年" ? 365 : 730;
+  const klines = useMemo(
+    () => generateKLines(basePrice, days),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [basePrice, days]
+  );
   const closes = klines.map((k) => k.close);
 
   // 各指标计算
@@ -135,7 +171,7 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
   const mainColor = isUp ? "#00E5A8" : "#EF4444";
   const minClose  = Math.min(...closes) * 0.995;
   const maxClose  = Math.max(...closes) * 1.005;
-  const prevClose = index.value - index.change;
+  const prevCloseK = index.value - index.change;
 
   const todayBar  = klines[klines.length - 1];
   const todayOpen = todayBar?.open  ?? index.value;
@@ -205,10 +241,10 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
         {/* 今日快览 */}
         <div className="grid grid-cols-4 gap-1 pt-3" style={{ borderTop: "1px solid #1a2f50" }}>
           {[
-            { label: "今开", value: todayOpen.toFixed(2),  color: pnlColor(todayOpen - prevClose) },
-            { label: "昨收", value: prevClose.toFixed(2),  color: "#F8FAFC" },
-            { label: "最高", value: todayHigh.toFixed(2),  color: "#00E5A8" },
-            { label: "最低", value: todayLow.toFixed(2),   color: "#EF4444" },
+            { label: "今开", value: todayOpen.toFixed(2),    color: pnlColor(todayOpen - prevCloseK) },
+            { label: "昨收", value: prevCloseK.toFixed(2),   color: "#F8FAFC" },
+            { label: "最高", value: todayHigh.toFixed(2),    color: "#00E5A8" },
+            { label: "最低", value: todayLow.toFixed(2),     color: "#EF4444" },
           ].map(({ label, value, color }) => (
             <div key={label} className="text-center">
               <p className="text-[9px] mb-0.5" style={{ color: "#4a6080" }}>{label}</p>
@@ -218,14 +254,14 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
         </div>
       </div>
 
-      {/* ── 时间段切换 ── */}
-      <div className="flex gap-1.5">
+      {/* ── 时间段切换（可横向滚动） ── */}
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5">
         {PERIODS.map((p) => (
           <button key={p} onClick={() => setPeriod(p)}
-            className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold"
+            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
             style={{
               background: period === p ? "rgba(0,229,168,0.15)" : "#0d1f3c",
-              color:      period === p ? "#00E5A8" : "#4a6080",
+              color:      period === p ? "#00E5A8" : "#94A3B8",
               border:     `1px solid ${period === p ? "#00E5A8" : "#1a2f50"}`,
             }}>
             {p}
@@ -233,229 +269,311 @@ export default function MarketDetailClient({ code, initialIndex }: Props) {
         ))}
       </div>
 
-      {/* ── 主价格图 ── */}
-      <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-        <p className="text-[11px] font-semibold mb-2" style={{ color: "#4a6080" }}>价格走势</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id={`grad-${code}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor={mainColor} stopOpacity={0.25} />
-                <stop offset="95%" stopColor={mainColor} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-            <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 9 }}
-              tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-            <YAxis domain={[minClose, maxClose]} tick={{ fill: "#4a6080", fontSize: 9 }}
-              tickFormatter={(v: number) => v.toFixed(0)} />
-            <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={((v: unknown, name: unknown) => {
-                const map: Record<string, string> = {
-                  close:"收盘", ma5:"MA5", ma10:"MA10", ma20:"MA20", ma60:"MA60",
-                  bollUpper:"BOLL上轨", bollMid:"BOLL中轨", bollLower:"BOLL下轨",
-                };
-                const n = String(name ?? "");
-                return [typeof v === "number" ? v.toFixed(2) : String(v), map[n] ?? n];
-              }) as any}
-            />
-            <Area type="monotone" dataKey="close" stroke={mainColor} strokeWidth={2}
-              fill={`url(#grad-${code})`} dot={false} />
-            {activeInds.includes("MA") && (
-              <>
-                <Area type="monotone" dataKey="ma5"  stroke="#FACC15" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
-                <Area type="monotone" dataKey="ma10" stroke="#F97316" strokeWidth={1}   fill="none" dot={false} strokeDasharray="4 2" />
-                <Area type="monotone" dataKey="ma20" stroke="#3B82F6" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
-                {days >= 90 && <Area type="monotone" dataKey="ma60" stroke="#A855F7" strokeWidth={1} fill="none" dot={false} strokeDasharray="4 2" />}
-              </>
-            )}
-            {activeInds.includes("BOLL") && (
-              <>
-                <Area type="monotone" dataKey="bollUpper" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
-                <Area type="monotone" dataKey="bollMid"   stroke="#FACC15" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
-                <Area type="monotone" dataKey="bollLower" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
-              </>
-            )}
-          </AreaChart>
-        </ResponsiveContainer>
-        {/* 图例 */}
-        <div className="flex gap-3 mt-2 justify-center flex-wrap">
-          <LegendItem color={mainColor} label="收盘" />
-          {activeInds.includes("MA") && (
-            <>
-              <LegendItem color="#FACC15" label="MA5"  dash />
-              <LegendItem color="#F97316" label="MA10" dash />
-              <LegendItem color="#3B82F6" label="MA20" dash />
-              {days >= 90 && <LegendItem color="#A855F7" label="MA60" dash />}
-            </>
-          )}
-          {activeInds.includes("BOLL") && <LegendItem color="#94A3B8" label="BOLL" dash />}
-        </div>
-      </div>
-
-      {/* ── 成交量图 ── */}
-      <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-        <p className="text-[11px] font-semibold mb-2" style={{ color: "#4a6080" }}>成交量</p>
-        <ResponsiveContainer width="100%" height={80}>
-          <ComposedChart data={chartData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-            <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 8 }}
-              tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-            <YAxis tick={{ fill: "#4a6080", fontSize: 8 }}
-              tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
-            <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-              formatter={(v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"] as [string, string]}
-            />
-            <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
-              {chartData.map((entry, i) => (
-                <Cell key={i} fill={entry.close >= (i > 0 ? chartData[i - 1].close : entry.close) ? "#00E5A8" : "#EF4444"} opacity={0.75} />
-              ))}
-            </Bar>
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* ── MACD 子图 ── */}
-      {activeInds.includes("MACD") && (
-        <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-          <div className="flex items-center gap-3 mb-2">
-            <p className="text-[11px] font-semibold" style={{ color: "#4a6080" }}>MACD (12,26,9)</p>
-            <LegendItem color="#FACC15" label="DIF" dash />
-            <LegendItem color="#3B82F6" label="DEA" dash />
-          </div>
-          <ResponsiveContainer width="100%" height={110}>
-            <ComposedChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-              <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 8 }}
-                tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: "#4a6080", fontSize: 8 }} tickFormatter={(v: number) => v.toFixed(1)} />
-              <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={((v: unknown, name: unknown) => {
-                const map: Record<string, string> = { macd:"MACD柱", dif:"DIF", dea:"DEA" };
-                const n = String(name ?? "");
-                return [typeof v === "number" ? v.toFixed(3) : String(v), map[n] ?? n];
-              }) as any}
-              />
-              <ReferenceLine y={0} stroke="#1a2f50" />
-              <Bar dataKey="macd" radius={[1, 1, 0, 0]}>
-                {chartData.map((entry, i) => (
-                  <Cell key={i} fill={entry.macd >= 0 ? "#00E5A8" : "#EF4444"} opacity={0.8} />
-                ))}
-              </Bar>
-              <Line type="monotone" dataKey="dif" stroke="#FACC15" dot={false} strokeWidth={1.2} />
-              <Line type="monotone" dataKey="dea" stroke="#3B82F6" dot={false} strokeWidth={1.2} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── RSI 子图 ── */}
-      {activeInds.includes("RSI") && (
-        <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-          <p className="text-[11px] font-semibold mb-2" style={{ color: "#4a6080" }}>RSI (14)</p>
-          <ResponsiveContainer width="100%" height={110}>
-            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="rsiGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#3B82F6" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-              <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 8 }}
-                tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: "#4a6080", fontSize: 8 }} />
-              <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                formatter={(v: unknown) => [`${typeof v === "number" ? v.toFixed(1) : v}`, "RSI"] as [string, string]}
-              />
-              <ReferenceLine y={70} stroke="#EF4444" strokeDasharray="3 2" label={{ value: "超买 70", fill: "#EF4444", fontSize: 9, position: "insideTopRight" }} />
-              <ReferenceLine y={30} stroke="#00E5A8" strokeDasharray="3 2" label={{ value: "超卖 30", fill: "#00E5A8", fontSize: 9, position: "insideBottomRight" }} />
-              <Area type="monotone" dataKey="rsi" stroke="#3B82F6" strokeWidth={1.5} fill="url(#rsiGrad)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── KDJ 子图 ── */}
-      {activeInds.includes("KDJ") && (
-        <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-          <div className="flex items-center gap-3 mb-2">
-            <p className="text-[11px] font-semibold" style={{ color: "#4a6080" }}>KDJ (9,3,3)</p>
-            <LegendItem color="#FACC15" label="K" />
-            <LegendItem color="#3B82F6" label="D" />
-            <LegendItem color="#EF4444" label="J" />
-          </div>
-          <ResponsiveContainer width="100%" height={110}>
-            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-              <XAxis dataKey="date" tick={{ fill: "#4a6080", fontSize: 8 }}
-                tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} ticks={[0, 20, 50, 80, 100]} tick={{ fill: "#4a6080", fontSize: 8 }} />
-              <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={((v: unknown, name: unknown) => [
-                typeof v === "number" ? v.toFixed(1) : String(v),
-                String(name ?? ""),
-              ]) as any}
-              />
-              <ReferenceLine y={80} stroke="#EF4444" strokeDasharray="3 2" />
-              <ReferenceLine y={20} stroke="#00E5A8" strokeDasharray="3 2" />
-              <Area type="monotone" dataKey="K" stroke="#FACC15" strokeWidth={1.5} fill="none" dot={false} />
-              <Area type="monotone" dataKey="D" stroke="#3B82F6" strokeWidth={1.5} fill="none" dot={false} />
-              <Area type="monotone" dataKey="J" stroke="#EF4444" strokeWidth={1}   fill="none" dot={false} strokeDasharray="3 2" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── 指标切换按钮 ── */}
-      <div>
-        <p className="text-[11px] font-semibold mb-2" style={{ color: "#4a6080" }}>技术指标</p>
-        <div className="flex gap-2 flex-wrap">
-          {INDICATOR_LIST.map((ind) => {
-            const on = activeInds.includes(ind);
-            return (
-              <button key={ind} onClick={() => toggleInd(ind)}
-                className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
-                style={{
-                  background: on ? "rgba(59,130,246,0.18)" : "#0d1f3c",
-                  color:      on ? "#3B82F6" : "#4a6080",
-                  border:     `1px solid ${on ? "rgba(59,130,246,0.35)" : "#1a2f50"}`,
-                }}>
-                {ind}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── 指标参考 ── */}
-      <div>
-        <p className="text-[11px] font-semibold mb-2" style={{ color: "#4a6080" }}>指标参考</p>
-        <div className="p-4 rounded-2xl space-y-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-          {[
-            { label: "MA (均线)",   sig: maSignal  },
-            { label: "MACD",        sig: macdSig   },
-            { label: "RSI (14)",    sig: rsiSig    },
-            { label: "KDJ (9,3,3)", sig: kdjSig    },
-            { label: "布林带",      sig: bollSig   },
-          ].map(({ label, sig }) => sig && (
-            <div key={label} className="flex items-center justify-between">
-              <span className="text-[12px]" style={{ color: "#94A3B8" }}>{label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-black text-[14px] num" style={{ color: sig.color }}>{sig.text}</span>
-                <span className="text-[10px]" style={{ color: "#4a6080" }}>{sig.note}</span>
+      {/* ══════════════════════════════════════════════════════
+          分时 / 1日：分时走势图
+      ══════════════════════════════════════════════════════ */}
+      {isIntraday ? (
+        <>
+          {/* 分时价格图 */}
+          <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>分时走势</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <div className="w-5 h-px" style={{ borderTop: "1px dashed #FACC15" }} />
+                  <span className="text-[10px]" style={{ color: "#FACC15" }}>昨收 {prevClose.toFixed(2)}</span>
+                </div>
+                <span className="font-bold text-[13px] num" style={{ color: intradayColor }}>
+                  {lastIntraday.toFixed(2)}
+                  &nbsp;
+                  <span className="text-[11px]">
+                    {intradayUp ? "+" : ""}{((lastIntraday - prevClose) / prevClose * 100).toFixed(2)}%
+                  </span>
+                </span>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={intradayPoints} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={`intradayGrad-${code}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={intradayColor} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={intradayColor} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  ticks={Array.from(KEY_TIMES)} interval={0}
+                />
+                <YAxis domain={[intradayMin, intradayMax]} tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  tickFormatter={(v: number) => v.toFixed(0)} />
+                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown) => [
+                    typeof v === "number" ? v.toFixed(2) : String(v), "价格"
+                  ]) as any}
+                />
+                <ReferenceLine y={prevClose} stroke="#FACC15" strokeDasharray="4 3" strokeWidth={1} />
+                <Area type="monotone" dataKey="price" stroke={intradayColor} strokeWidth={2}
+                  fill={`url(#intradayGrad-${code})`} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* 分时成交量 */}
+          <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>成交量</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <ComposedChart data={intradayPoints} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                  ticks={Array.from(KEY_TIMES)} interval={0} />
+                <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }}
+                  tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
+                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"]) as any}
+                />
+                <Bar dataKey="volume" radius={[1, 1, 0, 0]}>
+                  {intradayPoints.map((entry, i) => (
+                    <Cell key={i} fill={entry.pct >= 0 ? "#00E5A8" : "#EF4444"} opacity={0.7} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      ) : (
+      /* ══════════════════════════════════════════════════════
+          其他周期：K线 / 均线图
+      ══════════════════════════════════════════════════════ */
+        <>
+          {/* ── 主价格图 ── */}
+          <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>价格走势</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={`grad-${code}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={mainColor} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={mainColor} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                <YAxis domain={[minClose, maxClose]} tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  tickFormatter={(v: number) => v.toFixed(0)} />
+                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown, name: unknown) => {
+                    const map: Record<string, string> = {
+                      close:"收盘", ma5:"MA5", ma10:"MA10", ma20:"MA20", ma60:"MA60",
+                      bollUpper:"BOLL上轨", bollMid:"BOLL中轨", bollLower:"BOLL下轨",
+                    };
+                    const n = String(name ?? "");
+                    return [typeof v === "number" ? v.toFixed(2) : String(v), map[n] ?? n];
+                  }) as any}
+                />
+                <Area type="monotone" dataKey="close" stroke={mainColor} strokeWidth={2}
+                  fill={`url(#grad-${code})`} dot={false} />
+                {activeInds.includes("MA") && (
+                  <>
+                    <Area type="monotone" dataKey="ma5"  stroke="#FACC15" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
+                    <Area type="monotone" dataKey="ma10" stroke="#F97316" strokeWidth={1}   fill="none" dot={false} strokeDasharray="4 2" />
+                    <Area type="monotone" dataKey="ma20" stroke="#3B82F6" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
+                    {days >= 90 && <Area type="monotone" dataKey="ma60" stroke="#A855F7" strokeWidth={1} fill="none" dot={false} strokeDasharray="4 2" />}
+                  </>
+                )}
+                {activeInds.includes("BOLL") && (
+                  <>
+                    <Area type="monotone" dataKey="bollUpper" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
+                    <Area type="monotone" dataKey="bollMid"   stroke="#FACC15" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
+                    <Area type="monotone" dataKey="bollLower" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
+                  </>
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+            {/* 图例 */}
+            <div className="flex gap-3 mt-2 justify-center flex-wrap">
+              <LegendItem color={mainColor} label="收盘" />
+              {activeInds.includes("MA") && (
+                <>
+                  <LegendItem color="#FACC15" label="MA5"  dash />
+                  <LegendItem color="#F97316" label="MA10" dash />
+                  <LegendItem color="#3B82F6" label="MA20" dash />
+                  {days >= 90 && <LegendItem color="#A855F7" label="MA60" dash />}
+                </>
+              )}
+              {activeInds.includes("BOLL") && <LegendItem color="#94A3B8" label="BOLL" dash />}
+            </div>
+          </div>
+
+          {/* ── 成交量图 ── */}
+          <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>成交量</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <ComposedChart data={chartData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                  tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }}
+                  tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
+                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"]) as any}
+                />
+                <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
+                  {chartData.map((entry, i) => (
+                    <Cell key={i} fill={entry.close >= (i > 0 ? chartData[i - 1].close : entry.close) ? "#00E5A8" : "#EF4444"} opacity={0.75} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* ── MACD 子图 ── */}
+          {activeInds.includes("MACD") && (
+            <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+              <div className="flex items-center gap-3 mb-2">
+                <p className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>MACD (12,26,9)</p>
+                <LegendItem color="#FACC15" label="DIF" dash />
+                <LegendItem color="#3B82F6" label="DEA" dash />
+              </div>
+              <ResponsiveContainer width="100%" height={110}>
+                <ComposedChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                    tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }} tickFormatter={(v: number) => v.toFixed(1)} />
+                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={((v: unknown, name: unknown) => {
+                      const map: Record<string, string> = { macd:"MACD柱", dif:"DIF", dea:"DEA" };
+                      const n = String(name ?? "");
+                      return [typeof v === "number" ? v.toFixed(3) : String(v), map[n] ?? n];
+                    }) as any}
+                  />
+                  <ReferenceLine y={0} stroke="#1a2f50" />
+                  <Bar dataKey="macd" radius={[1, 1, 0, 0]}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.macd >= 0 ? "#00E5A8" : "#EF4444"} opacity={0.8} />
+                    ))}
+                  </Bar>
+                  <Line type="monotone" dataKey="dif" stroke="#FACC15" dot={false} strokeWidth={1.2} />
+                  <Line type="monotone" dataKey="dea" stroke="#3B82F6" dot={false} strokeWidth={1.2} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── RSI 子图 ── */}
+          {activeInds.includes("RSI") && (
+            <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+              <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>RSI (14)</p>
+              <ResponsiveContainer width="100%" height={110}>
+                <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="rsiGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#3B82F6" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                    tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                  <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: "#94A3B8", fontSize: 8 }} />
+                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={((v: unknown) => [typeof v === "number" ? v.toFixed(1) : String(v), "RSI"]) as any}
+                  />
+                  <ReferenceLine y={70} stroke="#EF4444" strokeDasharray="3 2" label={{ value: "超买 70", fill: "#EF4444", fontSize: 9, position: "insideTopRight" }} />
+                  <ReferenceLine y={30} stroke="#00E5A8" strokeDasharray="3 2" label={{ value: "超卖 30", fill: "#00E5A8", fontSize: 9, position: "insideBottomRight" }} />
+                  <Area type="monotone" dataKey="rsi" stroke="#3B82F6" strokeWidth={1.5} fill="url(#rsiGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── KDJ 子图 ── */}
+          {activeInds.includes("KDJ") && (
+            <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+              <div className="flex items-center gap-3 mb-2">
+                <p className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>KDJ (9,3,3)</p>
+                <LegendItem color="#FACC15" label="K" />
+                <LegendItem color="#3B82F6" label="D" />
+                <LegendItem color="#EF4444" label="J" />
+              </div>
+              <ResponsiveContainer width="100%" height={110}>
+                <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
+                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                    tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
+                  <YAxis domain={[0, 100]} ticks={[0, 20, 50, 80, 100]} tick={{ fill: "#94A3B8", fontSize: 8 }} />
+                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={((v: unknown, name: unknown) => [
+                      typeof v === "number" ? v.toFixed(1) : String(v),
+                      String(name ?? ""),
+                    ]) as any}
+                  />
+                  <ReferenceLine y={80} stroke="#EF4444" strokeDasharray="3 2" />
+                  <ReferenceLine y={20} stroke="#00E5A8" strokeDasharray="3 2" />
+                  <Area type="monotone" dataKey="K" stroke="#FACC15" strokeWidth={1.5} fill="none" dot={false} />
+                  <Area type="monotone" dataKey="D" stroke="#3B82F6" strokeWidth={1.5} fill="none" dot={false} />
+                  <Area type="monotone" dataKey="J" stroke="#EF4444" strokeWidth={1}   fill="none" dot={false} strokeDasharray="3 2" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── 指标切换按钮 ── */}
+          <div>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>技术指标</p>
+            <div className="flex gap-2 flex-wrap">
+              {INDICATOR_LIST.map((ind) => {
+                const on = activeInds.includes(ind);
+                return (
+                  <button key={ind} onClick={() => toggleInd(ind)}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                    style={{
+                      background: on ? "rgba(59,130,246,0.18)" : "#0d1f3c",
+                      color:      on ? "#3B82F6" : "#94A3B8",
+                      border:     `1px solid ${on ? "rgba(59,130,246,0.35)" : "#1a2f50"}`,
+                    }}>
+                    {ind}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── 指标参考 ── */}
+          <div>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>指标参考</p>
+            <div className="p-4 rounded-2xl space-y-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+              {[
+                { label: "MA (均线)",   sig: maSignal  },
+                { label: "MACD",        sig: macdSig   },
+                { label: "RSI (14)",    sig: rsiSig    },
+                { label: "KDJ (9,3,3)", sig: kdjSig    },
+                { label: "布林带",      sig: bollSig   },
+              ].map(({ label, sig }) => sig && (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-[12px]" style={{ color: "#94A3B8" }}>{label}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-[14px] num" style={{ color: sig.color }}>{sig.text}</span>
+                    <span className="text-[10px]" style={{ color: "#94A3B8" }}>{sig.note}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── 免责声明 ── */}
       <div className="p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}>
-        <p className="text-[10px] leading-[1.7]" style={{ color: "#4a6080" }}>
+        <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
           ⚠️ K线图及所有指标均基于模拟数据生成，仅供学习参考，不构成投资建议。
         </p>
       </div>
@@ -470,7 +588,7 @@ function LegendItem({ color, label, dash }: { color: string; label: string; dash
       <div className="w-5 h-0.5" style={{
         background: dash ? `repeating-linear-gradient(90deg,${color} 0,${color} 4px,transparent 4px,transparent 7px)` : color,
       }} />
-      <span className="text-[10px]" style={{ color: "#4a6080" }}>{label}</span>
+      <span className="text-[10px]" style={{ color: "#94A3B8" }}>{label}</span>
     </div>
   );
 }

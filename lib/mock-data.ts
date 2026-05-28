@@ -185,6 +185,41 @@ export function generateKLines(basePrice: number, days = 120): KLine[] {
   return lines;
 }
 
+// ─── 分时数据生成（A股交易时段 9:30-11:30 / 13:00-15:00） ──────
+export interface IntradayPoint {
+  time: string;
+  price: number;
+  volume: number;
+  pct: number; // 涨跌幅 vs 昨收
+}
+
+export function generateIntraday(basePrice: number): { points: IntradayPoint[]; prevClose: number } {
+  // 昨收 = 当前价 / (1 + 小幅随机涨跌)
+  const prevClose = +(basePrice / (1 + (Math.random() - 0.5) * 0.04)).toFixed(2);
+  const points: IntradayPoint[] = [];
+  let price = prevClose;
+
+  const addPoint = (minuteOfDay: number) => {
+    const h = Math.floor(minuteOfDay / 60);
+    const m = minuteOfDay % 60;
+    price = +(price + (Math.random() - 0.49) * price * 0.0028).toFixed(2);
+    price = Math.max(price, prevClose * 0.88); // 跌停保护
+    points.push({
+      time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+      price,
+      volume: Math.floor(Math.random() * 70000 + 8000),
+      pct: +((price - prevClose) / prevClose * 100).toFixed(2),
+    });
+  };
+
+  // 上午 9:30 – 11:30 (120 分钟)
+  for (let i = 0; i < 120; i++) addPoint(9 * 60 + 30 + i);
+  // 下午 13:00 – 15:00 (120 分钟)
+  for (let i = 0; i < 120; i++) addPoint(13 * 60 + i);
+
+  return { points, prevClose };
+}
+
 // ─── 策略 ─────────────────────────────────────────────────────
 export const MOCK_STRATEGIES: Strategy[] = [
   {
