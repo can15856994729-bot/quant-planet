@@ -34,9 +34,11 @@ export default function HomePage() {
       <div className="px-4 mb-5">
         <div className="grid grid-cols-2 gap-2.5">
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>沪深300</p>
-            <p className="font-black text-[20px] num" style={{ color: "#F8FAFC" }}>3,245.67</p>
-            <p className="text-[12px] font-bold up mt-0.5">▲ +0.86%</p>
+            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#4a6080" }}>我的真实账户</p>
+            <p className="font-black text-[20px] num" style={{ color: "#F8FAFC" }}>¥0.00</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>
+              今日 <span style={{ color: "#94A3B8" }} className="font-semibold">¥0.00</span>
+            </p>
           </div>
           <Link href="/sim-trading">
             <div className="p-3 rounded-2xl h-full" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
