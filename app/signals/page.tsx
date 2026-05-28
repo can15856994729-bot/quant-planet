@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Bell, BellOff, Info, TrendingUp, TrendingDown, Zap, Shield, Activity } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIGNALS } from "@/lib/mock-data";
-import { signalTypeLabel, signalTypeColor, marketColor, formatMarket, pnlColor } from "@/lib/utils";
+import { signalTypeLabel, signalTypeColor, marketColor, formatMarket, pnlColor, formatPrice, marketToCurrency } from "@/lib/utils";
 import type { SignalType } from "@/types";
 
 const FILTER_TABS: (SignalType | "全部")[] = ["全部", "BUY", "SELL", "BREAKOUT", "GOLDEN_CROSS", "STOP_LOSS", "HIGH_RISK"];
@@ -145,7 +145,7 @@ export default function SignalsPage() {
                     {formatMarket(sig.market)}
                   </span>
                 </div>
-                <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>¥{sig.price.toFixed(2)}</span>
+                <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>{formatPrice(sig.price, marketToCurrency(sig.market))}</span>
               </div>
 
               <p className="text-[12px] leading-[1.6]" style={{ color: "#94A3B8" }}>{sig.reason}</p>

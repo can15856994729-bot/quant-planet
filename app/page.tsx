@@ -1,7 +1,7 @@
 ﻿import Link from "next/link";
 import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
-import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor } from "@/lib/utils";
+import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
 import HomeMarket from "@/components/ui/HomeMarket";
 import HomeWatchlist from "@/components/ui/HomeWatchlist";
 
@@ -99,7 +99,7 @@ export default function HomePage() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="font-bold text-[12px] num" style={{ color: "#F8FAFC" }}>
-                    {formatPrice(sig.price, sig.market === "US" ? "USD" : sig.market === "HK" ? "HKD" : "CNY")}
+                    {formatPrice(sig.price, marketToCurrency(sig.market))}
                   </p>
                   <p className="text-[10px]" style={{ color: "#4a6080" }}>{sig.strength}强度</p>
                 </div>
