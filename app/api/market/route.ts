@@ -19,7 +19,7 @@ export async function GET() {
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${secids}&fields=f2,f3,f4,f12,f14`;
     const res = await fetch(url, {
       headers: { "Referer": "https://finance.eastmoney.com/" },
-      next: { revalidate: 60 },
+      next: { revalidate: 10 },
     });
     const json = await res.json();
     const items: unknown[] = json?.data?.diff ?? [];

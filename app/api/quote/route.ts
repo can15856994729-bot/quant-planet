@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f57,f58,f60,f169,f170,f116,f117`;
     const res = await fetch(url, {
       headers: { "Referer": "https://finance.eastmoney.com/" },
-      next: { revalidate: 60 }, // cache 60s
+      next: { revalidate: 10 }, // cache 10s
     });
     const json = await res.json();
     const d = json?.data;
