@@ -5,6 +5,7 @@ import { Plus, Search, Star, TrendingUp, TrendingDown, X } from "lucide-react";
 import { MOCK_STOCKS, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import PageHeader from "@/components/layout/PageHeader";
 import { formatPct, formatPrice, pnlColor, marketColor, formatMarket } from "@/lib/utils";
+import { useWatchlistQuotes } from "@/lib/useMarketData";
 
 export default function WatchlistPage() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
@@ -12,6 +13,7 @@ export default function WatchlistPage() {
   const [showAdd, setShowAdd] = useState(false);
 
   const stocks = MOCK_STOCKS.filter((s) => watchlist.includes(s.symbol));
+  const { quotes, realData } = useWatchlistQuotes(stocks.map((s) => s.symbol));
   const allStocks = MOCK_STOCKS.filter((s) =>
     !watchlist.includes(s.symbol) &&
     (s.name.includes(search) || s.symbol.toLowerCase().includes(search.toLowerCase()))
@@ -112,13 +114,21 @@ export default function WatchlistPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-[15px] num" style={{ color: "#F8FAFC" }}>
-                    {formatPrice(s.price, s.currency)}
-                  </p>
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
-                    {s.changePct > 0 ? <TrendingUp size={11} color="#00E5A8" /> : <TrendingDown size={11} color="#EF4444" />}
-                    <span className="font-bold text-[13px] num" style={{ color: pnlColor(s.changePct) }}>
-                      {formatPct(s.changePct)}
+                  <div className="flex items-center justify-end gap-1 mb-0.5">
+                    {realData && quotes[s.symbol] && (
+                      <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                        style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+                    )}
+                    <p className="font-bold text-[15px] num" style={{ color: "#F8FAFC" }}>
+                      {formatPrice(quotes[s.symbol]?.price ?? s.price, s.currency)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-end gap-1">
+                    {(quotes[s.symbol]?.changePct ?? s.changePct) > 0
+                      ? <TrendingUp size={11} color="#00E5A8" />
+                      : <TrendingDown size={11} color="#EF4444" />}
+                    <span className="font-bold text-[13px] num" style={{ color: pnlColor(quotes[s.symbol]?.changePct ?? s.changePct) }}>
+                      {formatPct(quotes[s.symbol]?.changePct ?? s.changePct)}
                     </span>
                   </div>
                 </div>

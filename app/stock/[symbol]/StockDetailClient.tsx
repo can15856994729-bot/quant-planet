@@ -10,14 +10,16 @@ const INDICATORS_LIST = ["MA", "MACD", "RSI", "KDJ", "布林带"];
 interface Props {
   symbol: string;
   market: Market;
+  initialPrice?: number;
 }
 
-export default function StockDetailClient({ symbol, market }: Props) {
+export default function StockDetailClient({ symbol, market, initialPrice }: Props) {
   const [period, setPeriod] = useState("3月");
   const [indicators, setIndicators] = useState<string[]>(["MA"]);
 
   const days = period === "5日" ? 5 : period === "1月" ? 30 : period === "3月" ? 90 : period === "1年" ? 365 : 730;
-  const basePrice = market === "A" ? 1680 : market === "HK" ? 320 : 185;
+  // 优先用传入的真实价格，fallback 到按市场估算的默认值
+  const basePrice = initialPrice ?? (market === "A" ? 1680 : market === "HK" ? 320 : 185);
   const klines = generateKLines(basePrice, days);
 
   // Compute simple moving averages for display

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { TrendingUp, TrendingDown, Plus, Minus, PieChart, Clock, Info, ChevronRight } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
-import { formatPrice, formatPct, pnlColor, marketColor, formatMarket } from "@/lib/utils";
+import { formatPrice, formatPct, pnlColor, marketColor, formatMarket, marketToCurrency } from "@/lib/utils";
 
 type Tab = "持仓" | "成交" | "下单";
 
@@ -127,8 +127,8 @@ export default function SimTradingPage() {
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: "持仓股数", value: `${pos.shares}股` },
-                    { label: "成本价",   value: `¥${pos.costPrice.toFixed(2)}` },
-                    { label: "现价",     value: `¥${pos.currentPrice.toFixed(2)}` },
+                    { label: "成本价",   value: formatPrice(pos.costPrice,    marketToCurrency(pos.market)) },
+                    { label: "现价",     value: formatPrice(pos.currentPrice, marketToCurrency(pos.market)) },
                   ].map(({ label, value }) => (
                     <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
                       <p className="font-semibold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>

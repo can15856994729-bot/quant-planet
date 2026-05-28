@@ -30,6 +30,12 @@ export function marketColor(market: Market): string {
   return { A: "#00E5A8", HK: "#3B82F6", US: "#FACC15" }[market];
 }
 
+export function marketToCurrency(market: Market): Currency {
+  if (market === "HK") return "HKD";
+  if (market === "US") return "USD";
+  return "CNY";
+}
+
 export function pnlColor(val: number): string {
   if (val > 0) return "#00E5A8";
   if (val < 0) return "#EF4444";

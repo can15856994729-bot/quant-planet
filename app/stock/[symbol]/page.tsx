@@ -1,10 +1,11 @@
 ﻿import { notFound } from "next/navigation";
 import Link from "next/link";
-import { BarChart3, TrendingUp, TrendingDown, Info } from "lucide-react";
+import { BarChart3, Info } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_STOCKS } from "@/lib/mock-data";
-import { formatPrice, formatPct, pnlColor, marketColor, formatMarket } from "@/lib/utils";
+import { formatPrice } from "@/lib/utils";
 import StockDetailClient from "./StockDetailClient";
+import StockPriceCard from "./StockPriceCard";
 
 export function generateStaticParams() {
   return MOCK_STOCKS.map((s) => ({ symbol: s.symbol }));
@@ -30,38 +31,13 @@ export default async function StockDetailPage({ params }: { params: Promise<{ sy
 
       <div className="px-4 pt-4 space-y-4 pb-8">
 
-        {/* 价格卡 */}
+        {/* 价格卡（实时） */}
         <div className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-black text-[16px]" style={{ color: "#F8FAFC" }}>{stock.name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
-                  style={{ background: `${marketColor(stock.market)}18`, color: marketColor(stock.market) }}>
-                  {formatMarket(stock.market)}
-                </span>
-              </div>
-              <p className="text-[11px]" style={{ color: "#4a6080" }}>{stock.symbol} · {stock.industry}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-black text-[28px] num" style={{ color: "#F8FAFC" }}>
-                {formatPrice(stock.price, stock.currency)}
-              </p>
-              <div className="flex items-center justify-end gap-1 mt-0.5">
-                {stock.changePct > 0 ? <TrendingUp size={12} color="#00E5A8" /> : <TrendingDown size={12} color="#EF4444" />}
-                <span className="font-bold text-[14px] num" style={{ color: pnlColor(stock.changePct) }}>
-                  {formatPct(stock.changePct)}
-                </span>
-                <span className="text-[11px] num ml-1" style={{ color: pnlColor(stock.change) }}>
-                  ({stock.change > 0 ? "+" : ""}{stock.change.toFixed(2)})
-                </span>
-              </div>
-            </div>
-          </div>
+          <StockPriceCard initialStock={stock} />
         </div>
 
         {/* K线图 + 指标（客户端组件） */}
-        <StockDetailClient symbol={stock.symbol} market={stock.market} />
+        <StockDetailClient symbol={stock.symbol} market={stock.market} initialPrice={stock.price} />
 
         {/* 基本面数据 */}
         <div>
