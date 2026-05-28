@@ -4,6 +4,7 @@ import { Bell, BellOff, Info, TrendingUp, TrendingDown, Zap, Shield, Activity } 
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIGNALS } from "@/lib/mock-data";
 import { signalTypeLabel, signalTypeColor, marketColor, formatMarket, pnlColor, formatPrice, marketToCurrency } from "@/lib/utils";
+import { useWatchlistQuotes } from "@/lib/useMarketData";
 import type { SignalType } from "@/types";
 
 const FILTER_TABS: (SignalType | "全部")[] = ["全部", "BUY", "SELL", "BREAKOUT", "GOLDEN_CROSS", "STOP_LOSS", "HIGH_RISK"];
@@ -22,10 +23,15 @@ function SignalIcon({ type }: { type: SignalType }) {
   return <Activity size={14} />;
 }
 
+// 所有信号涉及的去重 symbol 列表
+const SIGNAL_SYMBOLS = [...new Set(MOCK_SIGNALS.map((s) => s.symbol))];
+
 export default function SignalsPage() {
   const [filter, setFilter] = useState<SignalType | "全部">("全部");
   const [notifyOn, setNotifyOn] = useState(true);
   const [readSet, setReadSet] = useState<Set<string>>(new Set());
+
+  const { quotes } = useWatchlistQuotes(SIGNAL_SYMBOLS);
 
   const filtered = filter === "全部" ? MOCK_SIGNALS : MOCK_SIGNALS.filter((s) => s.type === filter);
   const unreadCount = MOCK_SIGNALS.filter((s) => !s.read && !readSet.has(s.id)).length;
@@ -145,7 +151,9 @@ export default function SignalsPage() {
                     {formatMarket(sig.market)}
                   </span>
                 </div>
-                <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>{formatPrice(sig.price, marketToCurrency(sig.market))}</span>
+                <span className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
+                  {formatPrice(quotes[sig.symbol]?.price ?? sig.price, marketToCurrency(sig.market))}
+                </span>
               </div>
 
               <p className="text-[12px] leading-[1.6]" style={{ color: "#94A3B8" }}>{sig.reason}</p>
