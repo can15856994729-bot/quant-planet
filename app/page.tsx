@@ -1,7 +1,8 @@
 ﻿import Link from "next/link";
 import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3 } from "lucide-react";
-import { MOCK_INDICES, MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
+import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor } from "@/lib/utils";
+import HomeMarket from "@/components/ui/HomeMarket";
 
 export default function HomePage() {
   const watchlistStocks = MOCK_STOCKS.filter((s) => DEFAULT_WATCHLIST.includes(s.symbol)).slice(0, 4);
@@ -62,30 +63,8 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 市场概览 */}
-      <section className="px-4 mb-5">
-        <h2 className="font-bold text-[14px] mb-2" style={{ color: "#F8FAFC" }}>
-          <span style={{ color: "#00E5A8", marginRight: 6 }}>▌</span>今日市场
-        </h2>
-        <div style={{ background: "#0d1f3c", borderRadius: 14, border: "1px solid #1a2f50" }}>
-          {MOCK_INDICES.slice(0, 4).map((idx, i) => (
-            <div key={idx.code} className="flex items-center justify-between px-4 py-3"
-              style={{ borderBottom: i < 3 ? "1px solid #1a2f50" : "none" }}>
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                  style={{ background: `${marketColor(idx.market)}18`, color: marketColor(idx.market) }}>
-                  {formatMarket(idx.market)}
-                </span>
-                <span className="font-semibold text-[13px]" style={{ color: "#F8FAFC" }}>{idx.name}</span>
-              </div>
-              <div className="text-right">
-                <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>{idx.value.toLocaleString()}</p>
-                <p className="text-[12px] font-bold num" style={{ color: pnlColor(idx.changePct) }}>{formatPct(idx.changePct)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* 市场概览（实时数据） */}
+      <HomeMarket />
 
       {/* 策略信号 */}
       <section className="px-4 mb-5">

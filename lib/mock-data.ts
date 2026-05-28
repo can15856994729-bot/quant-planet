@@ -84,6 +84,75 @@ export const MOCK_STOCKS: Stock[] = [
     volume: 21340000, turnover: 8855000000, marketCap: 3087000000000,
     pe: 36.2, high52w: 468.3, low52w: 362.9, industry: "科技",
   },
+  // ── 更多 A股 ──
+  {
+    symbol: "601857", name: "中国石油", market: "A", currency: "CNY",
+    price: 8.42, change: 0.12, changePct: 1.45,
+    volume: 6234000, turnover: 5249000000, marketCap: 1548000000000,
+    pe: 9.6, high52w: 9.88, low52w: 6.92, industry: "石油化工",
+  },
+  {
+    symbol: "600036", name: "招商银行", market: "A", currency: "CNY",
+    price: 35.6, change: 0.48, changePct: 1.37,
+    volume: 2345000, turnover: 8348000000, marketCap: 898000000000,
+    pe: 6.4, high52w: 42.8, low52w: 30.2, industry: "银行",
+  },
+  {
+    symbol: "600000", name: "浦发银行", market: "A", currency: "CNY",
+    price: 7.82, change: -0.06, changePct: -0.76,
+    volume: 4562000, turnover: 3567000000, marketCap: 226000000000,
+    pe: 5.1, high52w: 9.24, low52w: 7.14, industry: "银行",
+  },
+  {
+    symbol: "000858", name: "五粮液", market: "A", currency: "CNY",
+    price: 135.8, change: 2.4, changePct: 1.80,
+    volume: 342000, turnover: 4643000000, marketCap: 526000000000,
+    pe: 19.2, high52w: 168.4, low52w: 112.6, industry: "白酒",
+  },
+  {
+    symbol: "601166", name: "兴业银行", market: "A", currency: "CNY",
+    price: 18.42, change: 0.22, changePct: 1.21,
+    volume: 3456000, turnover: 6364000000, marketCap: 381000000000,
+    pe: 4.2, high52w: 22.6, low52w: 15.8, industry: "银行",
+  },
+  {
+    symbol: "600276", name: "恒瑞医药", market: "A", currency: "CNY",
+    price: 42.6, change: -0.8, changePct: -1.84,
+    volume: 1230000, turnover: 5240000000, marketCap: 271000000000,
+    pe: 48.3, high52w: 52.4, low52w: 34.2, industry: "医药",
+  },
+  // ── 更多港股 ──
+  {
+    symbol: "09618", name: "京东集团", market: "HK", currency: "HKD",
+    price: 148.5, change: 3.2, changePct: 2.20,
+    volume: 12340000, turnover: 1833000000, marketCap: 468000000000,
+    pe: 14.8, high52w: 198.6, low52w: 98.4, industry: "电商",
+  },
+  {
+    symbol: "00941", name: "中国移动", market: "HK", currency: "HKD",
+    price: 68.4, change: 0.6, changePct: 0.89,
+    volume: 28900000, turnover: 1977000000, marketCap: 1412000000000,
+    pe: 11.2, high52w: 82.4, low52w: 58.6, industry: "电信",
+  },
+  // ── 更多美股 ──
+  {
+    symbol: "AMZN", name: "亚马逊", market: "US", currency: "USD",
+    price: 196.5, change: 2.8, changePct: 1.45,
+    volume: 38420000, turnover: 7549000000, marketCap: 2048000000000,
+    pe: 42.6, high52w: 242.5, low52w: 151.3, industry: "电商/云计算",
+  },
+  {
+    symbol: "GOOGL", name: "谷歌", market: "US", currency: "USD",
+    price: 175.8, change: 1.6, changePct: 0.92,
+    volume: 22140000, turnover: 3892000000, marketCap: 2178000000000,
+    pe: 24.8, high52w: 208.7, low52w: 130.7, industry: "互联网/广告",
+  },
+  {
+    symbol: "META", name: "Meta", market: "US", currency: "USD",
+    price: 525.6, change: -8.4, changePct: -1.57,
+    volume: 15680000, turnover: 8241000000, marketCap: 1342000000000,
+    pe: 26.4, high52w: 589.2, low52w: 352.4, industry: "社交媒体",
+  },
 ];
 
 // ─── K线生成 ──────────────────────────────────────────────────
@@ -262,6 +331,97 @@ export const MOCK_STRATEGIES: Strategy[] = [
       { key: "takeProfit", label: "止盈比例", defaultValue: 15, min: 5,  max: 30, step: 1, unit: "%" },
     ],
     tags: ["止损", "止盈", "纪律"],
+  },
+  {
+    id: "s9",
+    name: "KDJ 金叉策略",
+    description: "K线上穿D线为金叉买入信号，K线下穿D线为死叉卖出信号，结合J值极值辅助过滤假信号。",
+    marketCondition: "震荡行情",
+    annualReturn: 15.6,
+    maxDrawdown: 8.2,
+    winRate: 58,
+    tradeCount: 72,
+    riskLevel: "中",
+    indicators: ["KDJ", "K线", "D线", "J线"],
+    markets: ["A", "HK"],
+    params: [
+      { key: "period",  label: "KDJ周期", defaultValue: 9,  min: 5,  max: 20, step: 1, unit: "日" },
+      { key: "overbought", label: "超买值", defaultValue: 80, min: 70, max: 90, step: 5, unit: "" },
+      { key: "oversold",   label: "超卖值", defaultValue: 20, min: 10, max: 30, step: 5, unit: "" },
+    ],
+    tags: ["KDJ", "震荡", "短线"],
+  },
+  {
+    id: "s10",
+    name: "成交量异动策略",
+    description: "当成交量突然放大至5日均量3倍以上时，判断为主力进场信号。结合价格方向决定买卖方向。",
+    marketCondition: "突破行情",
+    annualReturn: 19.4,
+    maxDrawdown: 14.8,
+    winRate: 47,
+    tradeCount: 22,
+    riskLevel: "高",
+    indicators: ["成交量", "均量线", "量比"],
+    markets: ["A"],
+    params: [
+      { key: "volMultiple", label: "放量倍数", defaultValue: 3,  min: 2,   max: 5,   step: 0.5, unit: "倍" },
+      { key: "maPeriod",    label: "均量周期", defaultValue: 5,  min: 3,   max: 10,  step: 1,   unit: "日" },
+    ],
+    tags: ["量价", "突破", "主力"],
+  },
+  {
+    id: "s11",
+    name: "高低点突破策略",
+    description: "价格突破近期阻力位（前高）时买入，跌破支撑位（前低）时卖出。简单有效的支撑阻力策略。",
+    marketCondition: "突破行情",
+    annualReturn: 20.8,
+    maxDrawdown: 11.4,
+    winRate: 51,
+    tradeCount: 34,
+    riskLevel: "中",
+    indicators: ["前高", "前低", "阻力位", "支撑位"],
+    markets: ["A", "HK", "US"],
+    params: [
+      { key: "lookback", label: "回溯周期", defaultValue: 20, min: 10, max: 60, step: 5, unit: "日" },
+    ],
+    tags: ["支撑阻力", "突破", "价格形态"],
+  },
+  {
+    id: "s12",
+    name: "均值回归策略",
+    description: "当价格大幅偏离长期均线时，预期价格回归均值。低于均线20%买入，高于均线20%卖出。",
+    marketCondition: "震荡行情",
+    annualReturn: 13.2,
+    maxDrawdown: 6.8,
+    winRate: 65,
+    tradeCount: 56,
+    riskLevel: "低",
+    indicators: ["MA120", "偏离度"],
+    markets: ["A", "US"],
+    params: [
+      { key: "maPeriod",    label: "均线周期", defaultValue: 120, min: 60,  max: 250, step: 10, unit: "日" },
+      { key: "deviationPct",label: "偏离阈值", defaultValue: 20,  min: 10,  max: 30,  step: 5,  unit: "%" },
+    ],
+    tags: ["均值回归", "长线", "价值"],
+  },
+  {
+    id: "s13",
+    name: "多因子综合策略",
+    description: "综合动量、价值、质量三大因子打分，选取综合评分高的股票。分散化持仓，降低单股风险。",
+    marketCondition: "全市场",
+    annualReturn: 16.8,
+    maxDrawdown: 9.6,
+    winRate: 60,
+    tradeCount: 45,
+    riskLevel: "中",
+    indicators: ["动量因子", "价值因子", "质量因子", "综合评分"],
+    markets: ["A", "US"],
+    params: [
+      { key: "momentumWeight", label: "动量权重", defaultValue: 40, min: 10, max: 60, step: 10, unit: "%" },
+      { key: "valueWeight",    label: "价值权重", defaultValue: 30, min: 10, max: 60, step: 10, unit: "%" },
+      { key: "qualityWeight",  label: "质量权重", defaultValue: 30, min: 10, max: 60, step: 10, unit: "%" },
+    ],
+    tags: ["多因子", "量化选股", "分散化"],
   },
 ];
 
@@ -444,4 +604,4 @@ export const MOCK_SIGNALS: Signal[] = [
 ];
 
 // ─── 默认自选股 ───────────────────────────────────────────────
-export const DEFAULT_WATCHLIST = ["600519", "002594", "300750", "00700", "NVDA", "AAPL"];
+export const DEFAULT_WATCHLIST = ["600519", "002594", "300750", "601318", "00700", "09988", "NVDA", "AAPL", "TSLA"];

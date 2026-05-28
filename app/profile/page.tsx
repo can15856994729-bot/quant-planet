@@ -1,16 +1,20 @@
 ﻿"use client";
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   User, Settings, Bell, Shield, BarChart3, BookOpen,
-  ChevronRight, LogOut, Info, Star, TrendingUp, Award
+  ChevronRight, LogOut, Info, Star, TrendingUp, Award, LogIn
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
 import { formatPct, pnlColor } from "@/lib/utils";
+import { useAuthStore } from "@/store/authStore";
 
 export default function ProfilePage() {
   const [notifyEnabled, setNotifyEnabled] = useState(true);
+  const { user, isLoggedIn, logout } = useAuthStore();
+  const router = useRouter();
   const acc = MOCK_SIM_ACCOUNT;
 
   const statsItems = [
@@ -23,25 +27,25 @@ export default function ProfilePage() {
     {
       title: "交易功能",
       items: [
-        { icon: BarChart3, label: "我的回测记录",    href: "/backtest",     desc: "查看历史回测报告" },
-        { icon: TrendingUp, label: "模拟交易账户",   href: "/sim-trading",  desc: `总资产 ¥${acc.totalValue.toLocaleString()}` },
-        { icon: Bell,       label: "信号提醒设置",   href: "/signals",      desc: notifyEnabled ? "已开启实时提醒" : "提醒已关闭" },
+        { icon: BarChart3, label: "我的回测记录",  href: "/backtest",    desc: "查看历史回测报告" },
+        { icon: TrendingUp, label: "模拟交易账户", href: "/sim-trading", desc: `总资产 ¥${acc.totalValue.toLocaleString()}` },
+        { icon: Bell,       label: "信号提醒设置", href: "/signals",     desc: notifyEnabled ? "已开启实时提醒" : "提醒已关闭" },
       ],
     },
     {
       title: "学习中心",
       items: [
-        { icon: BookOpen, label: "量化策略教程",    href: "/ai-assistant", desc: "入门到进阶" },
-        { icon: Star,     label: "收藏的策略",       href: "/strategies",   desc: `${3}个策略已收藏` },
-        { icon: Award,    label: "我的策略评分",     href: "/strategies",   desc: "综合评分 B+" },
+        { icon: BookOpen, label: "策略AI助手",   href: "/ai-assistant", desc: "量化知识问答" },
+        { icon: Star,     label: "收藏的策略",   href: "/strategies",   desc: "3个策略已收藏" },
+        { icon: Award,    label: "我的策略评分", href: "/strategies",   desc: "综合评分 B+" },
       ],
     },
     {
       title: "设置与帮助",
       items: [
-        { icon: Shield,   label: "风险偏好设置",    href: "/disclaimer",   desc: "当前：中等风险" },
-        { icon: Info,     label: "风险免责声明",     href: "/disclaimer",   desc: "重要合规说明" },
-        { icon: Settings, label: "应用设置",         href: "#",             desc: "通知/主题/语言" },
+        { icon: Shield,   label: "风险偏好设置", href: "/disclaimer", desc: isLoggedIn ? `当前：${user?.riskLevel}型` : "未设置" },
+        { icon: Info,     label: "风险免责声明", href: "/disclaimer", desc: "重要合规说明" },
+        { icon: Settings, label: "应用设置",     href: "#",           desc: "通知/主题/语言" },
       ],
     },
   ];
@@ -52,35 +56,69 @@ export default function ProfilePage() {
 
       {/* 用户信息卡 */}
       <div className="mx-4 mt-4 p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-[22px]"
-            style={{ background: "linear-gradient(135deg, rgba(0,229,168,0.2), rgba(59,130,246,0.15))", border: "1px solid rgba(0,229,168,0.25)" }}>
-            🌍
-          </div>
-          <div>
-            <p className="font-black text-[17px]" style={{ color: "#F8FAFC" }}>量化星球用户</p>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
-                style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
-                模拟账户
+        {isLoggedIn && user ? (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-[26px]"
+                style={{ background: "linear-gradient(135deg, rgba(0,229,168,0.2), rgba(59,130,246,0.15))", border: "1px solid rgba(0,229,168,0.25)" }}>
+                {user.avatar}
+              </div>
+              <div className="flex-1">
+                <p className="font-black text-[17px]" style={{ color: "#F8FAFC" }}>{user.nickname}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                    style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
+                    {user.riskLevel}型投资者
+                  </span>
+                  <span className="text-[10px]" style={{ color: "#4a6080" }}>注册于 {user.joinedAt}</span>
+                </div>
+              </div>
+              <button onClick={() => { logout(); router.push("/login"); }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl"
+                style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                <LogOut size={13} color="#EF4444" />
+                <span className="text-[11px] font-semibold" style={{ color: "#EF4444" }}>退出</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "#0a1628" }}>
+              <User size={13} color="#4a6080" />
+              <span className="text-[12px]" style={{ color: "#4a6080" }}>
+                {user.phone.slice(0, 3)}****{user.phone.slice(-4)}
               </span>
-              <span className="text-[10px]" style={{ color: "#4a6080" }}>免费版</span>
             </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
+                <User size={24} color="#4a6080" />
+              </div>
+              <div>
+                <p className="font-bold text-[15px]" style={{ color: "#94A3B8" }}>未登录</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "#4a6080" }}>登录后查看完整功能</p>
+              </div>
+            </div>
+            <Link href="/login">
+              <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-[13px]"
+                style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
+                <LogIn size={15} />
+                登录/注册
+              </div>
+            </Link>
           </div>
-        </div>
-
-        {/* 统计数据 */}
-        <div className="grid grid-cols-3 gap-2">
-          {statsItems.map(({ label, value, color }) => (
-            <div key={label} className="p-2.5 rounded-xl text-center" style={{ background: "#0a1628" }}>
-              <p className="font-black text-[16px] num" style={{ color }}>{value}</p>
-              <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
-            </div>
-          ))}
-        </div>
+        )}
       </div>
 
-      {/* 模拟账户快速入口 */}
+      <div className="grid grid-cols-3 gap-2 mx-4 mt-3">
+        {statsItems.map(({ label, value, color }) => (
+          <div key={label} className="p-2.5 rounded-xl text-center" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <p className="font-black text-[16px] num" style={{ color }}>{value}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: "#4a6080" }}>{label}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="mx-4 mt-3 p-3 rounded-2xl flex items-center justify-between"
         style={{ background: "rgba(0,229,168,0.06)", border: "1px solid rgba(0,229,168,0.15)" }}>
         <div>
@@ -100,7 +138,6 @@ export default function ProfilePage() {
         </Link>
       </div>
 
-      {/* 菜单组 */}
       <div className="px-4 mt-4 space-y-4 pb-24">
         {menuGroups.map((group) => (
           <div key={group.title}>
@@ -131,7 +168,6 @@ export default function ProfilePage() {
           </div>
         ))}
 
-        {/* 提醒开关 */}
         <div className="p-4 rounded-2xl flex items-center justify-between"
           style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
           <div className="flex items-center gap-3">
@@ -154,9 +190,8 @@ export default function ProfilePage() {
           </button>
         </div>
 
-        {/* 版本信息 */}
         <div className="text-center py-4">
-          <p className="text-[11px]" style={{ color: "#4a6080" }}>量化星球 QuantPlanet v1.0.0</p>
+          <p className="text-[11px]" style={{ color: "#4a6080" }}>量化星球 QuantPlanet v1.1.0</p>
           <p className="text-[10px] mt-1" style={{ color: "#1a2f50" }}>数据仅供学习，不构成投资建议</p>
         </div>
       </div>
