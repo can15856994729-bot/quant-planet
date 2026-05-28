@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3 } from "lucide-react";
+import { Bell, Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor } from "@/lib/utils";
 import HomeMarket from "@/components/ui/HomeMarket";
@@ -27,6 +27,10 @@ export default function HomePage() {
             )}
           </Link>
           <Link href="/watchlist"><Search size={22} color="#94A3B8" /></Link>
+          <Link href="/download" className="w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: "rgba(0,229,168,0.10)", border: "1px solid rgba(0,229,168,0.2)" }}>
+            <Download size={16} color="#00E5A8" />
+          </Link>
         </div>
       </div>
 

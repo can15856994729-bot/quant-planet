@@ -1,0 +1,53 @@
+{
+  "name": "量化星球 QuantPlanet",
+  "short_name": "量化星球",
+  "description": "量化策略分析 · 模拟交易 · 信号提醒 · 数据辅助决策",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07111F",
+  "theme_color": "#00E5A8",
+  "categories": ["finance", "utilities"],
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "量化星球首页"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "策略回测",
+      "url": "/backtest",
+      "description": "快速开始策略回测"
+    },
+    {
+      "name": "信号提醒",
+      "url": "/signals",
+      "description": "查看今日量化信号"
+    },
+    {
+      "name": "模拟交易",
+      "url": "/sim-trading",
+      "description": "模拟账户交易"
+    }
+  ]
+}
