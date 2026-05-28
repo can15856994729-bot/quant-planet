@@ -3,10 +3,6 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-    paths:
-      - 'android/**'
-      - 'capacitor.config.ts'
-      - '.github/workflows/build-apk.yml'
   workflow_dispatch:   # 允许手动触发
 
 jobs:
@@ -22,6 +18,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -29,8 +26,14 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
+
+      - name: Create placeholder web dir (needed by cap sync)
+        run: mkdir -p out
+
+      - name: Run Capacitor sync (generates capacitor.settings.gradle etc.)
+        run: npx cap sync android
 
       - name: Grant Gradle execute permission
         run: chmod +x android/gradlew
@@ -38,34 +41,39 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
       - name: Rename APK
-        run: |
-          mkdir -p public/downloads
-          cp android/app/build/outputs/apk/debug/app-debug.apk public/downloads/QuantPlanet.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk QuantPlanet.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: QuantPlanet-APK
-          path: public/downloads/QuantPlanet.apk
+          path: QuantPlanet.apk
           retention-days: 30
 
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
-          name: "量化星球 APK (Latest)"
+          name: "量化星球 APK (Latest Build)"
           body: |
-            ## 量化星球 QuantPlanet Android APK
+            ## 量化星球 QuantPlanet — Android APK
 
-            **安装方法（华为/Android）：**
+            ### 安装方法
+            **华为 / 小米 / OPPO / 三星等 Android 手机：**
             1. 下载 `QuantPlanet.apk`
-            2. 用文件管理器打开，允许安装未知来源
-            3. 完成安装
+            2. 打开文件管理器找到下载的 APK，点击安装
+            3. 若提示"未知来源"，点击【仍然安装】
+            4. 安装完成后桌面出现【量化星球】图标
 
-            > ⚠️ 本App仅供量化策略学习，不构成投资建议
-          files: public/downloads/QuantPlanet.apk
+            **iPhone 用户请使用 PWA：**
+            打开 Safari → https://quant-planet.vercel.app → 分享 → 添加到主屏幕
+
+            ---
+            > ⚠️ 本App仅供量化策略学习和模拟交易，不构成投资建议，不提供真实交易功能。
+          files: QuantPlanet.apk
           make_latest: true
