@@ -2,12 +2,13 @@ import type { Stock, KLine, Strategy, BacktestResult, SimAccount, Signal, Index 
 
 // ─── 指数 ─────────────────────────────────────────────────────
 export const MOCK_INDICES: Index[] = [
-  { name: "上证指数", code: "000001", value: 3245.67, change: 27.54, changePct: 0.86, market: "A" },
-  { name: "深证成指", code: "399001", value: 10234.5, change: 124.3, changePct: 1.23, market: "A" },
-  { name: "创业板指", code: "399006", value: 2108.3,  change: 30.2,  changePct: 1.45, market: "A" },
+  { name: "上证指数", code: "000001", value: 3245.67, change: 27.54,  changePct: 0.86,  market: "A"  },
+  { name: "深证成指", code: "399001", value: 10234.5, change: 124.3,  changePct: 1.23,  market: "A"  },
+  { name: "创业板指", code: "399006", value: 2108.3,  change: 30.2,   changePct: 1.45,  market: "A"  },
+  { name: "沪深300",  code: "000300", value: 3856.2,  change: 32.4,   changePct: 0.85,  market: "A"  },
   { name: "恒生指数", code: "HSI",    value: 18654.2, change: -89.4,  changePct: -0.48, market: "HK" },
-  { name: "纳斯达克", code: "IXIC",   value: 16342.8, change: 98.6,  changePct: 0.61, market: "US" },
-  { name: "标普500",  code: "SPX",    value: 5218.4,  change: 15.2,  changePct: 0.29, market: "US" },
+  { name: "纳斯达克", code: "IXIC",   value: 16342.8, change: 98.6,   changePct: 0.61,  market: "US" },
+  { name: "标普500",  code: "SPX",    value: 5218.4,  change: 15.2,   changePct: 0.29,  market: "US" },
 ];
 
 // ─── 股票 ─────────────────────────────────────────────────────
