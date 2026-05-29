@@ -123,15 +123,17 @@ export function useStockQuote(symbol: string) {
 
 // ─── 多股行情（自选股 / 信号列表） ────────────────────────────
 export function useWatchlistQuotes(symbols: string[]) {
-  const [quotes, setQuotes] = useState<Record<string, Partial<Stock>>>({});
-  const [realData, setRealData] = useState(false);
+  const [quotes, setQuotes]       = useState<Record<string, Partial<Stock>>>({});
+  const [realData, setRealData]   = useState(false);
+  // Per-symbol real-time flag: only true when data came from live API (not static fallback)
+  const [realtimeSet, setRealtimeSet] = useState<Set<string>>(new Set());
   const key = symbols.join(",");
 
   const refresh = useCallback(async () => {
     if (!symbols.length) return;
     const results: Record<string, Partial<Stock>> = {};
+    const newRealtimeSet = new Set<string>();
 
-    // Batch fetch — POST to batch-quotes is more efficient for many symbols
     try {
       const r = await fetch("/api/stocks/batch-quotes", {
         method: "POST",
@@ -146,6 +148,7 @@ export function useWatchlistQuotes(symbols: string[]) {
         )) {
           if (q.price > 0) {
             results[sym] = { price: q.price, change: q.change, changePct: q.changePct };
+            if (q.isRealtime) newRealtimeSet.add(sym);
           }
         }
       }
@@ -153,7 +156,8 @@ export function useWatchlistQuotes(symbols: string[]) {
 
     if (Object.keys(results).length > 0) {
       setQuotes(results);
-      setRealData(true);
+      setRealData(newRealtimeSet.size > 0);
+      setRealtimeSet(newRealtimeSet);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -168,5 +172,5 @@ export function useWatchlistQuotes(symbols: string[]) {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  return { quotes, realData, refresh };
+  return { quotes, realData, realtimeSet, refresh };
 }

@@ -86,9 +86,11 @@ export async function GET(req: NextRequest) {
     const secids = needEM.map(getSecid).filter(Boolean).join(",");
     if (secids) {
       try {
+        // f13 = mktNum: 0/1/2=A股, 116=HK, 105=US
+        // HK prices are ×1000 (港仙/mil), A & US are ×100
         const url =
           `https://push2.eastmoney.com/api/qt/ulist.np/get` +
-          `?secids=${secids}&fields=f2,f3,f4,f12,f14,f47,f116`;
+          `?secids=${secids}&fields=f2,f3,f4,f12,f13,f14,f47,f116`;
         const res = await fetch(url, {
           headers: { Referer: "https://finance.eastmoney.com/" },
           next: { revalidate: 15 },
@@ -100,8 +102,8 @@ export async function GET(req: NextRequest) {
           const d = item as Record<string, number | string> | null;
           if (!d || !d.f12) continue;
           const sym = String(d.f12).toUpperCase();
-          const isUS = isUSSymbol(sym);
-          const divisor = isUS ? 1000 : 100;
+          const mktNum = Number(d.f13 ?? 0);
+          const divisor = mktNum === 116 ? 1000 : 100; // HK=1000, A/US=100
           const price = Number(d.f2) / divisor;
           if (price > 0 && !results[sym]) {
             results[sym] = {

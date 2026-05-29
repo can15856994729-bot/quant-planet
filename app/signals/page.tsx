@@ -46,7 +46,7 @@ export default function SignalsPage() {
 
   useEffect(() => { setReadSet(getReadSet()); }, []);
 
-  const { quotes } = useWatchlistQuotes(SIGNAL_SYMBOLS);
+  const { quotes, realtimeSet } = useWatchlistQuotes(SIGNAL_SYMBOLS);
 
   const buyCount    = MOCK_SIGNALS.filter((s) => s.type === "BUY" || s.type === "GOLDEN_CROSS").length;
   const sellCount   = MOCK_SIGNALS.filter((s) => s.type === "SELL" || s.type === "STOP_LOSS").length;
@@ -208,7 +208,7 @@ export default function SignalsPage() {
                     <p className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
                       {formatPrice(quotes[sig.symbol]?.price ?? sig.price, marketToCurrency(sig.market))}
                     </p>
-                    {quotes[sig.symbol] && (
+                    {realtimeSet.has(sig.symbol) && (
                       <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                         style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                     )}

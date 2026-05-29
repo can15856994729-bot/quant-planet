@@ -11,7 +11,7 @@ const watchlistStocks = MOCK_STOCKS.filter((s) =>
 const symbols = watchlistStocks.map((s) => s.symbol);
 
 export default function HomeWatchlist() {
-  const { quotes, realData } = useWatchlistQuotes(symbols);
+  const { quotes, realtimeSet } = useWatchlistQuotes(symbols);
 
   return (
     <div style={{ background: "#0d1f3c", borderRadius: 14, border: "1px solid #1a2f50" }}>
@@ -34,7 +34,7 @@ export default function HomeWatchlist() {
                   >
                     {s.symbol}
                   </span>
-                  {realData && q && (
+                  {realtimeSet.has(s.symbol) && (
                     <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                       style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                   )}

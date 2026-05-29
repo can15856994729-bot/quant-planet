@@ -43,7 +43,7 @@ export default function WatchlistPage() {
     ? allWatched
     : allWatched.filter((s) => s.market === MARKET_MAP[activeTab]);
 
-  const { quotes, realData } = useWatchlistQuotes(allWatched.map((s) => s.symbol));
+  const { quotes, realData, realtimeSet } = useWatchlistQuotes(allWatched.map((s) => s.symbol));
 
   // Stock search with debounce
   const { results: pickerStocks, loading: searchLoading } = useStockSearch(
@@ -138,7 +138,7 @@ export default function WatchlistPage() {
                 </div>
                 <div className="text-right pr-6">
                   <div className="flex items-center justify-end gap-1 mb-0.5">
-                    {realData && quotes[s.symbol] && (
+                    {realtimeSet.has(s.symbol) && (
                       <span className="text-[9px] px-1 py-0.5 rounded font-bold"
                         style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                     )}

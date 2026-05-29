@@ -60,8 +60,10 @@ export async function GET(req: NextRequest) {
       const json = await res.json();
       const d = json?.data;
       if (d && d.f43 !== undefined && d.f43 !== "-") {
-        const isUS = isUSSymbol(symbol);
-        const divisor = isUS ? 1000 : 100;
+        // HK stocks (secid 116.XXXXX) use price×1000 (HK cents/mil)
+        // A stocks and US stocks both use price×100
+        const isHK = secid.startsWith("116.");
+        const divisor = isHK ? 1000 : 100;
         const price = Number(d.f43) / divisor;
         if (price > 0) {
           return NextResponse.json({
