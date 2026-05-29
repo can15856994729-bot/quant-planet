@@ -1,20 +1,38 @@
 "use client";
 import { useState, useMemo } from "react";
 import {
-  AreaChart, Area, ComposedChart, Bar, Line,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Cell,
+  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid, ReferenceLine, Cell,
+  AreaChart, Area,
 } from "recharts";
 import { generateKLines, generateIntraday } from "@/lib/mock-data";
+import { CHART, TT_STYLE, TT_LABEL_STYLE } from "@/lib/chartConstants";
 import type { Market } from "@/types";
 
 // ── 周期定义 ────────────────────────────────────────────────────
 const PERIODS = ["分时", "1日", "5日", "10日", "1月", "3月", "半年", "1年", "全部"] as const;
 type Period = typeof PERIODS[number];
-const INTRADAY_PERIODS: Period[] = ["分时", "1日"];
+
+// 只有"分时"是纯折线分时图；"1日"= 今日5分K蜡烛图；其余 = 日K蜡烛图
+const INTRADAY_PERIODS: Period[] = ["分时"];
+const DAY1_PERIOD:  Period  = "1日";
 
 const INDICATORS_LIST = ["MA", "MACD", "RSI", "KDJ", "布林带"];
 
-// ── EMA / RSI / KDJ helpers ────────────────────────────────────
+// ── 图表标题 ────────────────────────────────────────────────────
+const PERIOD_TITLE: Record<Period, string> = {
+  "分时": "分时走势",
+  "1日":  "今日5分K",
+  "5日":  "5日K线",
+  "10日": "10日K线",
+  "1月":  "1月K线",
+  "3月":  "3月K线",
+  "半年": "半年K线",
+  "1年":  "年K线",
+  "全部": "全部K线",
+};
+
+// ── 技术指标计算 ────────────────────────────────────────────────
 function ema(data: number[], n: number) {
   const k = 2 / (n + 1);
   return data.reduce<number[]>((acc, v, i) => {
@@ -47,30 +65,105 @@ function kdj(klines: { high: number; low: number; close: number }[], n = 9) {
   return { K, D, J };
 }
 
+interface CandleEntry {
+  date:   string;
+  open:   number;
+  high:   number;
+  low:    number;
+  close:  number;
+  volume: number;
+  isUp:   boolean;
+  ma5?: number; ma10?: number; ma20?: number; ma60?: number;
+  dif?: number; dea?: number; macd?: number;
+  rsi?: number;
+  K?: number; D?: number; J?: number;
+  bollUpper?: number; bollMid?: number; bollLower?: number;
+}
+
+// ── 自定义蜡烛图 Shape ────────────────────────────────────────────
+// 使用 dataKey="high" + baseValue=minP 渲染整根蜡烛
+// shape 收到的 y = pixelY(high)，height = pixel 距离(high→minP)
+function makeCandleShape(minP: number) {
+  // eslint-disable-next-line react/display-name
+  return function CandleShape(props: {
+    x?: number; y?: number; width?: number; height?: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    payload?: any;
+  }) {
+    const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+    if (!payload || height <= 0 || width <= 0) return null;
+
+    const { open, high, low, close, isUp } = payload as CandleEntry;
+    const color = isUp ? CHART.UP : CHART.DOWN;
+
+    // y = pixelY(high), y+height = pixelY(minP)
+    const scale = height / Math.max(high - minP, 0.001);
+    const toY   = (p: number) => y + (high - p) * scale;
+
+    const highY  = y;
+    const lowY   = toY(low);
+    const topY   = toY(Math.max(open, close));
+    const botY   = toY(Math.min(open, close));
+    const bodyH  = Math.max(botY - topY, 1);
+
+    const cx = x + width / 2;
+    const bw = Math.max(width * 0.68, 1.5);
+
+    return (
+      <g>
+        {/* 上下影线 */}
+        <line x1={cx} y1={highY} x2={cx} y2={lowY} stroke={color} strokeWidth={1} />
+        {/* 开收实体 */}
+        <rect x={cx - bw / 2} y={topY} width={bw} height={bodyH} fill={color} />
+      </g>
+    );
+  };
+}
+
 interface Props { symbol: string; market: Market; initialPrice?: number; }
 
-const ttStyle = { background: "#0a1628", border: "1px solid #1a2f50", borderRadius: 8, fontSize: 11 };
-const ttLabel = { color: "#94A3B8" };
-
 export default function StockDetailClient({ symbol, market, initialPrice }: Props) {
-  const [period, setPeriod]       = useState<Period>("3月");
+  const [period, setPeriod]     = useState<Period>("3月");
   const [indicators, setIndicators] = useState<string[]>(["MA"]);
 
-  const basePrice = initialPrice ?? (market === "A" ? 1680 : market === "HK" ? 320 : 185);
+  const basePrice  = initialPrice ?? (market === "A" ? 1680 : market === "HK" ? 320 : 185);
   const isIntraday = INTRADAY_PERIODS.includes(period);
+  const isDay1     = period === DAY1_PERIOD;
 
-  // ── 分时数据 ────────────────────────────────────────────────
+  // ── 分时数据（分时 + 1日 共用） ──────────────────────────────
   const { points: intradayPoints, prevClose } = useMemo(
     () => generateIntraday(basePrice),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [basePrice, period]          // period 变化时重新生成
+    [basePrice, period]
   );
+  const KEY_TIMES = new Set(["09:30","10:00","10:30","11:00","11:30","13:00","13:30","14:00","14:30","15:00"]);
 
-  // ── K线数据 ─────────────────────────────────────────────────
-  const days = period === "5日" ? 5 : period === "10日" ? 10 :
+  // ── "1日" 今日5分K ─────────────────────────────────────────
+  const intraday5min: CandleEntry[] = useMemo(() => {
+    if (!isDay1) return [];
+    const candles: CandleEntry[] = [];
+    for (let i = 0; i < intradayPoints.length; i += 5) {
+      const sl = intradayPoints.slice(i, i + 5);
+      if (!sl.length) continue;
+      const open  = sl[0].price;
+      const close = sl[sl.length - 1].price;
+      const high  = Math.max(...sl.map(p => p.price));
+      const low   = Math.min(...sl.map(p => p.price));
+      candles.push({
+        date: sl[0].time, open, high, low, close,
+        volume: sl.reduce((s, p) => s + p.volume, 0),
+        isUp: close >= open,
+      });
+    }
+    return candles;
+  }, [isDay1, intradayPoints]);
+
+  // ── 日K数据 ─────────────────────────────────────────────────
+  const days = period === "1日" ? 5 : period === "5日" ? 5 : period === "10日" ? 10 :
                period === "1月" ? 30 : period === "3月" ? 90 :
                period === "半年" ? 180 : period === "1年" ? 365 : 730;
-  const klines  = useMemo(() => generateKLines(basePrice, days), [basePrice, days]);
+  const klines = useMemo(() => generateKLines(basePrice, days), [basePrice, days]);
+
   const closes  = klines.map(k => k.close);
   const e5  = ema(closes, 5),  e10 = ema(closes, 10);
   const e20 = ema(closes, 20), e60 = ema(closes, 60);
@@ -86,38 +179,61 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
     const std = Math.sqrt(sl.reduce((a, b) => a + (b - avg) ** 2, 0) / sl.length);
     return { upper: +(avg + 2 * std).toFixed(2), mid: +avg.toFixed(2), lower: +(avg - 2 * std).toFixed(2) };
   });
-  const klineData = klines.map((k, i) => ({
-    date: k.date, close: k.close, volume: k.volume,
-    ma5: +e5[i].toFixed(2), ma10: +e10[i].toFixed(2),
-    ma20: +e20[i].toFixed(2), ma60: +e60[i].toFixed(2),
-    dif: dif[i], dea: dea[i], macd: macdH[i],
-    rsi: rsiArr[i], K: K[i], D: D[i], J: J[i],
-    bollUpper: bollArr[i].upper, bollMid: bollArr[i].mid, bollLower: bollArr[i].lower,
-  }));
 
-  const minClose  = Math.min(...closes) * 0.995;
-  const maxClose  = Math.max(...closes) * 1.005;
-  const lastClose = closes[closes.length - 1] ?? basePrice;
-  const isUp      = lastClose >= (closes[0] ?? basePrice);
-  const mainColor = isUp ? "#00E5A8" : "#EF4444";
+  const candleData: CandleEntry[] = useMemo(() =>
+    klines.map((k, i) => {
+      const open = k.open ?? (i > 0 ? klines[i-1].close : k.close * 0.998);
+      return {
+        date: k.date, open, high: k.high, low: k.low, close: k.close, volume: k.volume,
+        isUp: k.close >= open,
+        ma5: +e5[i].toFixed(2), ma10: +e10[i].toFixed(2),
+        ma20: +e20[i].toFixed(2), ma60: +e60[i].toFixed(2),
+        dif: dif[i], dea: dea[i], macd: macdH[i],
+        rsi: rsiArr[i], K: K[i], D: D[i], J: J[i],
+        bollUpper: bollArr[i].upper, bollMid: bollArr[i].mid, bollLower: bollArr[i].lower,
+      };
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [klines]);
 
-  // 分时：最终价格 vs 昨收
-  const lastIntraday = intradayPoints[intradayPoints.length - 1]?.price ?? basePrice;
-  const intradayUp   = lastIntraday >= prevClose;
-  const intradayColor = intradayUp ? "#00E5A8" : "#EF4444";
-  const intradayMin  = Math.min(...intradayPoints.map(p => p.price), prevClose) * 0.999;
-  const intradayMax  = Math.max(...intradayPoints.map(p => p.price), prevClose) * 1.001;
+  // ── 价格区间 ─────────────────────────────────────────────────
+  const allH = candleData.map(k => k.high);
+  const allL = candleData.map(k => k.low);
+  const minP = (allL.length ? Math.min(...allL) : basePrice * 0.9) * 0.998;
+  const maxP = (allH.length ? Math.max(...allH) : basePrice * 1.1) * 1.002;
 
-  // 只在整点/半点显示 X 轴刻度
-  const KEY_TIMES = new Set(["09:30","10:00","10:30","11:00","11:30","13:00","13:30","14:00","14:30","15:00"]);
+  // "1日" 5分K 价格区间
+  const day1H = intraday5min.map(k => k.high);
+  const day1L = intraday5min.map(k => k.low);
+  const minP1 = (day1L.length ? Math.min(...day1L) : basePrice * 0.97) * 0.998;
+  const maxP1 = (day1H.length ? Math.max(...day1H) : basePrice * 1.03) * 1.002;
+
+  // 分时价格区间
+  const lastIntraday  = intradayPoints[intradayPoints.length - 1]?.price ?? basePrice;
+  const intradayUp    = lastIntraday >= prevClose;
+  const intradayColor = intradayUp ? CHART.INTRADAY_UP : CHART.INTRADAY_DOWN;
+  const intradayMin   = Math.min(...intradayPoints.map(p => p.price), prevClose) * 0.999;
+  const intradayMax   = Math.max(...intradayPoints.map(p => p.price), prevClose) * 1.001;
+
+  // 自定义蜡烛 Shape（日K / 5分K）
+  const CandleShapeK  = useMemo(() => makeCandleShape(minP),  [minP]);
+  const CandleShape1d = useMemo(() => makeCandleShape(minP1), [minP1]);
+
+  // barSize 根据数据量自适应
+  const barSz  = Math.max(2, Math.min(14, Math.floor(340 / Math.max(candleData.length,  1))));
+  const barSz1 = Math.max(3, Math.min(14, Math.floor(340 / Math.max(intraday5min.length, 1))));
 
   function toggleInd(ind: string) {
     setIndicators(prev => prev.includes(ind) ? prev.filter(x => x !== ind) : [...prev, ind]);
   }
 
+  // 是否显示蜡烛图（1日 or 日K）
+  const showCandle = isDay1 || (!isIntraday && !isDay1);
+  void showCandle;
+
   return (
     <div>
-      {/* ── 时间段切换（可横向滚动） ── */}
+      {/* ── 周期切换 ── */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-0.5">
         {PERIODS.map((p) => (
           <button key={p} onClick={() => setPeriod(p)}
@@ -132,24 +248,23 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
         ))}
       </div>
 
-      {/* ══════════════════════════════════════════════════════
-          分时 / 1日：分时走势图
-      ══════════════════════════════════════════════════════ */}
-      {isIntraday ? (
+      {/* ══ 分时走势（仅"分时"周期） ══ */}
+      {isIntraday && (
         <>
-          {/* 分时价格图 */}
           <div className="p-3 rounded-2xl mb-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            {/* 昨收标注 */}
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>分时走势</span>
+              <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>
+                {PERIOD_TITLE[period]}
+              </span>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1">
-                  <div className="w-5 h-px" style={{ background: "#FACC15", borderTop: "1px dashed #FACC15" }} />
-                  <span className="text-[10px]" style={{ color: "#FACC15" }}>昨收 {prevClose.toFixed(2)}</span>
+                  <div className="w-5 h-px" style={{ borderTop: `1px dashed ${CHART.PREV_CLOSE}` }} />
+                  <span className="text-[10px]" style={{ color: CHART.PREV_CLOSE }}>
+                    昨收 {prevClose.toFixed(2)}
+                  </span>
                 </div>
                 <span className="font-bold text-[13px] num" style={{ color: intradayColor }}>
-                  {lastIntraday.toFixed(2)}
-                  &nbsp;
+                  {lastIntraday.toFixed(2)}&nbsp;
                   <span className="text-[11px]">
                     {intradayUp ? "+" : ""}{((lastIntraday - prevClose) / prevClose * 100).toFixed(2)}%
                   </span>
@@ -159,26 +274,22 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
             <ResponsiveContainer width="100%" height={180}>
               <AreaChart data={intradayPoints} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="intradayGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="intradayG" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor={intradayColor} stopOpacity={0.25} />
                     <stop offset="95%" stopColor={intradayColor} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 9 }}
-                  ticks={Array.from(KEY_TIMES)} interval={0}
-                />
-                <YAxis domain={[intradayMin, intradayMax]} tick={{ fill: "#94A3B8", fontSize: 9 }}
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                <XAxis dataKey="time" tick={{ fill: CHART.AXIS, fontSize: 9 }}
+                  ticks={Array.from(KEY_TIMES)} interval={0} />
+                <YAxis domain={[intradayMin, intradayMax]} tick={{ fill: CHART.AXIS, fontSize: 9 }}
                   tickFormatter={(v: number) => v.toFixed(0)} />
-                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={((v: unknown) => [
-                    typeof v === "number" ? v.toFixed(2) : String(v), "价格"
-                  ]) as any}
-                />
-                <ReferenceLine y={prevClose} stroke="#FACC15" strokeDasharray="4 3" strokeWidth={1} />
+                  formatter={((v: unknown) => [typeof v === "number" ? v.toFixed(2) : String(v), "价格"]) as any} />
+                <ReferenceLine y={prevClose} stroke={CHART.PREV_CLOSE} strokeDasharray="4 3" strokeWidth={1} />
                 <Area type="monotone" dataKey="price" stroke={intradayColor} strokeWidth={2}
-                  fill="url(#intradayGrad)" dot={false} />
+                  fill="url(#intradayG)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -188,112 +299,112 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
             <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>成交量</p>
             <ResponsiveContainer width="100%" height={70}>
               <ComposedChart data={intradayPoints} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                <XAxis dataKey="time" tick={{ fill: CHART.AXIS, fontSize: 8 }}
                   ticks={Array.from(KEY_TIMES)} interval={0} />
-                <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }}
+                <YAxis tick={{ fill: CHART.AXIS, fontSize: 8 }}
                   tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
-                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={((v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"]) as any}
-                />
+                  formatter={((v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"]) as any} />
                 <Bar dataKey="volume" radius={[1, 1, 0, 0]}>
-                  {intradayPoints.map((entry, i) => (
-                    <Cell key={i} fill={entry.pct >= 0 ? "#00E5A8" : "#EF4444"} opacity={0.7} />
+                  {intradayPoints.map((e, i) => (
+                    <Cell key={i} fill={e.pct >= 0 ? CHART.UP : CHART.DOWN} opacity={0.7} />
                   ))}
                 </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         </>
-      ) : (
-      /* ══════════════════════════════════════════════════════
-          其他周期：K线 / 均线图
-      ══════════════════════════════════════════════════════ */
+      )}
+
+      {/* ══ 今日5分K蜡烛图（"1日"周期） ══ */}
+      {isDay1 && (
         <>
-          {/* 主价格图 */}
+          <KlinePanel
+            title={PERIOD_TITLE["1日"]}
+            data={intraday5min}
+            minP={minP1}
+            maxP={maxP1}
+            barSz={barSz1}
+            CandleShape={CandleShape1d}
+            xKey="date"
+            xFmt={(v: string) => v}
+            indicators={[]}
+            note="⚠️ 当前为模拟数据·今日5分钟K线（示例）"
+          />
+          {/* 成交量 */}
+          <div className="p-3 rounded-2xl mt-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>成交量</p>
+            <VolBar data={intraday5min} xKey="date" xFmt={(v: string) => v} />
+          </div>
+        </>
+      )}
+
+      {/* ══ 日K蜡烛图（5日及以上周期） ══ */}
+      {!isIntraday && !isDay1 && (
+        <>
+          {/* 主蜡烛图 */}
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={klineData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={mainColor} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={mainColor} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 9 }}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>
+                {PERIOD_TITLE[period]}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Dot color={CHART.UP} /><span className="text-[10px]" style={{ color: CHART.AXIS }}>涨</span>
+                <Dot color={CHART.DOWN} /><span className="text-[10px]" style={{ color: CHART.AXIS }}>跌</span>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={candleData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                <XAxis dataKey="date" tick={{ fill: CHART.AXIS, fontSize: 9 }}
                   tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-                <YAxis domain={[minClose, maxClose]} tick={{ fill: "#94A3B8", fontSize: 9 }}
+                <YAxis domain={[minP, maxP]} tick={{ fill: CHART.AXIS, fontSize: 9 }}
                   tickFormatter={(v: number) => v.toFixed(0)} />
-                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={((v: unknown, name: unknown) => {
-                    const map: Record<string, string> = {
-                      close:"收盘", ma5:"MA5", ma10:"MA10", ma20:"MA20", ma60:"MA60",
-                      bollUpper:"BOLL↑", bollMid:"BOLL中", bollLower:"BOLL↓",
-                    };
-                    const n = String(name ?? "");
-                    return [typeof v === "number" ? v.toFixed(2) : String(v), map[n] ?? n];
-                  }) as any}
-                />
-                <Area type="monotone" dataKey="close" stroke={mainColor} strokeWidth={2}
-                  fill="url(#priceGrad)" dot={false} />
+                <Tooltip content={<CandleTooltip />} />
+                {/* 蜡烛主体：dataKey=high + baseValue=minP → shape 内用 scale 自算坐标 */}
+                {/* @ts-expect-error recharts Bar supports baseValue at runtime, missing from v3 types */}
+                <Bar dataKey="high" baseValue={minP} barSize={barSz}
+                  shape={<CandleShapeK />} isAnimationActive={false} />
+                {/* MA 均线 */}
                 {indicators.includes("MA") && (
                   <>
-                    <Area type="monotone" dataKey="ma5"  stroke="#FACC15" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
-                    <Area type="monotone" dataKey="ma10" stroke="#F97316" strokeWidth={1}   fill="none" dot={false} strokeDasharray="4 2" />
-                    <Area type="monotone" dataKey="ma20" stroke="#3B82F6" strokeWidth={1.2} fill="none" dot={false} strokeDasharray="4 2" />
-                    {days >= 90 && <Area type="monotone" dataKey="ma60" stroke="#A855F7" strokeWidth={1} fill="none" dot={false} strokeDasharray="4 2" />}
+                    <Line type="monotone" dataKey="ma5"  stroke={CHART.MA5}  strokeWidth={1.2} dot={false} />
+                    <Line type="monotone" dataKey="ma10" stroke={CHART.MA10} strokeWidth={1}   dot={false} />
+                    <Line type="monotone" dataKey="ma20" stroke={CHART.MA20} strokeWidth={1.2} dot={false} />
+                    {days >= 90 && <Line type="monotone" dataKey="ma60" stroke={CHART.MA60} strokeWidth={1} dot={false} />}
                   </>
                 )}
+                {/* 布林带 */}
                 {indicators.includes("布林带") && (
                   <>
-                    <Area type="monotone" dataKey="bollUpper" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
-                    <Area type="monotone" dataKey="bollMid"   stroke="#FACC15" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
-                    <Area type="monotone" dataKey="bollLower" stroke="#94A3B8" strokeWidth={1} fill="none" dot={false} strokeDasharray="2 3" />
+                    <Line type="monotone" dataKey="bollUpper" stroke={CHART.BOLL_UPPER} strokeWidth={0.8} dot={false} strokeDasharray="2 3" />
+                    <Line type="monotone" dataKey="bollMid"   stroke={CHART.BOLL_MID}   strokeWidth={0.8} dot={false} strokeDasharray="2 3" />
+                    <Line type="monotone" dataKey="bollLower" stroke={CHART.BOLL_LOWER} strokeWidth={0.8} dot={false} strokeDasharray="2 3" />
                   </>
                 )}
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
             {/* 图例 */}
             <div className="flex gap-3 mt-2 justify-center flex-wrap">
-              <LI color={mainColor} label="收盘" />
               {indicators.includes("MA") && (
                 <>
-                  <LI color="#FACC15" label="MA5"  dash />
-                  <LI color="#F97316" label="MA10" dash />
-                  <LI color="#3B82F6" label="MA20" dash />
-                  {days >= 90 && <LI color="#A855F7" label="MA60" dash />}
+                  <LI color={CHART.MA5}  label="MA5"  dash />
+                  <LI color={CHART.MA10} label="MA10" dash />
+                  <LI color={CHART.MA20} label="MA20" dash />
+                  {days >= 90 && <LI color={CHART.MA60} label="MA60" dash />}
                 </>
               )}
-              {indicators.includes("布林带") && <LI color="#94A3B8" label="BOLL" dash />}
+              {indicators.includes("布林带") && <LI color={CHART.BOLL_UPPER} label="BOLL" dash />}
             </div>
           </div>
 
           {/* 成交量 */}
           <div className="p-3 rounded-2xl mt-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>成交量</p>
-            <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={klineData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
-                  tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }}
-                  tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
-                <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={((v: unknown) => [`${typeof v === "number" ? (v / 10000).toFixed(0) : v}万手`, "成交量"]) as any}
-                />
-                <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
-                  {klineData.map((entry, i) => (
-                    <Cell key={i}
-                      fill={entry.close >= (i > 0 ? klineData[i-1].close : entry.close) ? "#00E5A8" : "#EF4444"}
-                      opacity={0.75} />
-                  ))}
-                </Bar>
-              </ComposedChart>
-            </ResponsiveContainer>
+            <VolBar data={candleData} xKey="date"
+              xFmt={(v: string) => v.slice(5)} />
           </div>
 
           {/* MACD */}
@@ -301,27 +412,27 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
             <div className="p-3 rounded-2xl mt-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
               <div className="flex items-center gap-3 mb-2">
                 <p className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>MACD (12,26,9)</p>
-                <LI color="#FACC15" label="DIF" dash /><LI color="#3B82F6" label="DEA" dash />
+                <LI color={CHART.MACD_DIF} label="DIF" dash />
+                <LI color={CHART.MACD_DEA} label="DEA" dash />
               </div>
               <ResponsiveContainer width="100%" height={100}>
-                <ComposedChart data={klineData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                <ComposedChart data={candleData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                  <XAxis dataKey="date" tick={{ fill: CHART.AXIS, fontSize: 8 }}
                     tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: "#94A3B8", fontSize: 8 }} tickFormatter={(v: number) => v.toFixed(1)} />
-                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  <YAxis tick={{ fill: CHART.AXIS, fontSize: 8 }} tickFormatter={(v: number) => v.toFixed(1)} />
+                  <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={((v: unknown, name: unknown) => {
+                    formatter={((v: unknown, n: unknown) => {
                       const m: Record<string,string> = { macd:"MACD柱", dif:"DIF", dea:"DEA" };
-                      return [typeof v === "number" ? v.toFixed(3) : String(v), m[String(name??"")] ?? String(name??"")];
-                    }) as any}
-                  />
-                  <ReferenceLine y={0} stroke="#1a2f50" />
+                      return [typeof v === "number" ? v.toFixed(3) : String(v), m[String(n??"")] ?? String(n??"")];
+                    }) as any} />
+                  <ReferenceLine y={0} stroke={CHART.GRID} />
                   <Bar dataKey="macd" radius={[1,1,0,0]}>
-                    {klineData.map((e, i) => <Cell key={i} fill={e.macd >= 0 ? "#00E5A8" : "#EF4444"} opacity={0.8} />)}
+                    {candleData.map((e, i) => <Cell key={i} fill={(e.macd ?? 0) >= 0 ? CHART.UP : CHART.DOWN} opacity={0.85} />)}
                   </Bar>
-                  <Line type="monotone" dataKey="dif" stroke="#FACC15" dot={false} strokeWidth={1.2} />
-                  <Line type="monotone" dataKey="dea" stroke="#3B82F6" dot={false} strokeWidth={1.2} />
+                  <Line type="monotone" dataKey="dif" stroke={CHART.MACD_DIF} dot={false} strokeWidth={1.2} />
+                  <Line type="monotone" dataKey="dea" stroke={CHART.MACD_DEA} dot={false} strokeWidth={1.2} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -332,24 +443,23 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
             <div className="p-3 rounded-2xl mt-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
               <p className="text-[11px] font-semibold mb-2" style={{ color: "#94A3B8" }}>RSI (14)</p>
               <ResponsiveContainer width="100%" height={100}>
-                <AreaChart data={klineData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <AreaChart data={candleData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="rsiG" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#3B82F6" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                      <stop offset="5%"  stopColor={CHART.RSI} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={CHART.RSI} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                  <XAxis dataKey="date" tick={{ fill: CHART.AXIS, fontSize: 8 }}
                     tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-                  <YAxis domain={[0,100]} ticks={[0,30,70,100]} tick={{ fill: "#94A3B8", fontSize: 8 }} />
-                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  <YAxis domain={[0,100]} ticks={[0,30,70,100]} tick={{ fill: CHART.AXIS, fontSize: 8 }} />
+                  <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={((v: unknown) => [typeof v === "number" ? v.toFixed(1) : String(v), "RSI"]) as any}
-                  />
-                  <ReferenceLine y={70} stroke="#EF4444" strokeDasharray="3 2" />
-                  <ReferenceLine y={30} stroke="#00E5A8" strokeDasharray="3 2" />
-                  <Area type="monotone" dataKey="rsi" stroke="#3B82F6" strokeWidth={1.5} fill="url(#rsiG)" dot={false} />
+                    formatter={((v: unknown) => [typeof v === "number" ? v.toFixed(1) : String(v), "RSI"]) as any} />
+                  <ReferenceLine y={70} stroke={CHART.UP}   strokeDasharray="3 2" />
+                  <ReferenceLine y={30} stroke={CHART.DOWN} strokeDasharray="3 2" />
+                  <Area type="monotone" dataKey="rsi" stroke={CHART.RSI} strokeWidth={1.5} fill="url(#rsiG)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -360,31 +470,37 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
             <div className="p-3 rounded-2xl mt-3" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
               <div className="flex items-center gap-3 mb-2">
                 <p className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>KDJ (9,3,3)</p>
-                <LI color="#FACC15" label="K" /><LI color="#3B82F6" label="D" /><LI color="#EF4444" label="J" />
+                <LI color={CHART.KDJ_K} label="K" />
+                <LI color={CHART.KDJ_D} label="D" />
+                <LI color={CHART.KDJ_J} label="J" />
               </div>
               <ResponsiveContainer width="100%" height={100}>
-                <AreaChart data={klineData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2f50" />
-                  <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 8 }}
+                <AreaChart data={candleData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+                  <XAxis dataKey="date" tick={{ fill: CHART.AXIS, fontSize: 8 }}
                     tickFormatter={(v: string) => v.slice(5)} interval="preserveStartEnd" />
-                  <YAxis domain={[0,100]} ticks={[0,20,50,80,100]} tick={{ fill: "#94A3B8", fontSize: 8 }} />
-                  <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
+                  <YAxis domain={[0,100]} ticks={[0,20,50,80,100]} tick={{ fill: CHART.AXIS, fontSize: 8 }} />
+                  <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={((v: unknown, name: unknown) => [typeof v === "number" ? v.toFixed(1) : String(v), String(name??"")]) as any}
-                  />
-                  <ReferenceLine y={80} stroke="#EF4444" strokeDasharray="3 2" />
-                  <ReferenceLine y={20} stroke="#00E5A8" strokeDasharray="3 2" />
-                  <Area type="monotone" dataKey="K" stroke="#FACC15" strokeWidth={1.5} fill="none" dot={false} />
-                  <Area type="monotone" dataKey="D" stroke="#3B82F6" strokeWidth={1.5} fill="none" dot={false} />
-                  <Area type="monotone" dataKey="J" stroke="#EF4444" strokeWidth={1}   fill="none" dot={false} strokeDasharray="3 2" />
+                    formatter={((v: unknown, n: unknown) => [typeof v === "number" ? v.toFixed(1) : String(v), String(n??"")]) as any} />
+                  <ReferenceLine y={80} stroke={CHART.UP}   strokeDasharray="3 2" />
+                  <ReferenceLine y={20} stroke={CHART.DOWN} strokeDasharray="3 2" />
+                  <Area type="monotone" dataKey="K" stroke={CHART.KDJ_K} strokeWidth={1.5} fill="none" dot={false} />
+                  <Area type="monotone" dataKey="D" stroke={CHART.KDJ_D} strokeWidth={1.5} fill="none" dot={false} />
+                  <Area type="monotone" dataKey="J" stroke={CHART.KDJ_J} strokeWidth={1}   fill="none" dot={false} strokeDasharray="3 2" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* 数据说明 */}
+          <p className="text-[10px] mt-2 text-center" style={{ color: "#64748B" }}>
+            ⚠️ 当前为模拟数据·{PERIOD_TITLE[period]}（示例）
+          </p>
         </>
       )}
 
-      {/* ── 指标切换（分时模式不显示） ── */}
+      {/* ── 指标切换（非分时显示） ── */}
       {!isIntraday && (
         <div className="flex gap-2 mt-3 flex-wrap">
           {INDICATORS_LIST.map((ind) => (
@@ -404,6 +520,106 @@ export default function StockDetailClient({ symbol, market, initialPrice }: Prop
   );
 }
 
+// ── 蜡烛 Tooltip ──────────────────────────────────────────────────
+function CandleTooltip({ active, payload, label }: {
+  active?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: any[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload as CandleEntry | undefined;
+  if (!d) return null;
+  const col = d.isUp ? CHART.UP : CHART.DOWN;
+  return (
+    <div style={{ background: CHART.TT_BG, border: `1px solid ${CHART.TT_BORDER}`, borderRadius: 8, padding: "8px 10px", fontSize: 11 }}>
+      <p style={{ color: CHART.AXIS, marginBottom: 4 }}>{label}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "2em 1fr", gap: "2px 8px" }}>
+        {([
+          ["开", d.open?.toFixed(2), col],
+          ["高", d.high?.toFixed(2), CHART.UP],
+          ["低", d.low?.toFixed(2),  CHART.DOWN],
+          ["收", d.close?.toFixed(2), col],
+          ["量", d.volume ? `${(d.volume/10000).toFixed(1)}万` : "-", "#F8FAFC"],
+        ] as [string, string, string][]).map(([label, val, c]) => (
+          <>
+            <span key={`l-${label}`} style={{ color: CHART.AXIS }}>{label}</span>
+            <span key={`v-${label}`} style={{ color: c, fontWeight: 700 }}>{val}</span>
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 成交量子图（共用） ──────────────────────────────────────────
+function VolBar({ data, xKey, xFmt }: {
+  data: CandleEntry[];
+  xKey: string;
+  xFmt: (v: string) => string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={70}>
+      <ComposedChart data={data} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+        <XAxis dataKey={xKey} tick={{ fill: CHART.AXIS, fontSize: 8 }}
+          tickFormatter={xFmt as (v: unknown) => string} interval="preserveStartEnd" />
+        <YAxis tick={{ fill: CHART.AXIS, fontSize: 8 }}
+          tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
+        <Tooltip contentStyle={TT_STYLE} labelStyle={TT_LABEL_STYLE}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={((v: unknown) => [`${typeof v === "number" ? (v/10000).toFixed(0) : v}万手`, "成交量"]) as any} />
+        <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
+          {data.map((e, i) => (
+            <Cell key={i} fill={e.isUp ? CHART.UP : CHART.DOWN} opacity={0.75} />
+          ))}
+        </Bar>
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── 1日5分K 面板（复用） ─────────────────────────────────────────
+function KlinePanel({ title, data, minP, maxP, barSz, CandleShape, xKey, xFmt, indicators, note }: {
+  title: string;
+  data: CandleEntry[];
+  minP: number; maxP: number;
+  barSz: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  CandleShape: any;
+  xKey: string;
+  xFmt: (v: string) => string;
+  indicators: string[];
+  note?: string;
+}) {
+  void indicators;
+  return (
+    <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>{title}</span>
+        <div className="flex items-center gap-1.5">
+          <Dot color={CHART.UP} /><span className="text-[10px]" style={{ color: CHART.AXIS }}>涨</span>
+          <Dot color={CHART.DOWN} /><span className="text-[10px]" style={{ color: CHART.AXIS }}>跌</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <ComposedChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={CHART.GRID} />
+          <XAxis dataKey={xKey} tick={{ fill: CHART.AXIS, fontSize: 9 }}
+            tickFormatter={xFmt as (v: unknown) => string} interval="preserveStartEnd" />
+          <YAxis domain={[minP, maxP]} tick={{ fill: CHART.AXIS, fontSize: 9 }}
+            tickFormatter={(v: number) => v.toFixed(0)} />
+          <Tooltip content={<CandleTooltip />} />
+          {/* @ts-expect-error recharts Bar supports baseValue at runtime, missing from v3 types */}
+          <Bar dataKey="high" baseValue={minP} barSize={barSz}
+            shape={<CandleShape />} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+      {note && <p className="text-[10px] mt-1 text-center" style={{ color: "#64748B" }}>{note}</p>}
+    </div>
+  );
+}
+
 // ── 图例小组件 ─────────────────────────────────────────────────
 function LI({ color, label, dash }: { color: string; label: string; dash?: boolean }) {
   return (
@@ -416,4 +632,9 @@ function LI({ color, label, dash }: { color: string; label: string; dash?: boole
       <span className="text-[10px]" style={{ color: "#94A3B8" }}>{label}</span>
     </div>
   );
+}
+
+// ── 颜色圆点 ───────────────────────────────────────────────────
+function Dot({ color }: { color: string }) {
+  return <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />;
 }
