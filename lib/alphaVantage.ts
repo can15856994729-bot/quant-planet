@@ -111,3 +111,73 @@ export function isUSSymbol(symbol: string): boolean {
   // US symbols: all letters (and BRK.B style dots), no leading digit
   return /^[A-Z][A-Z.]*$/.test(symbol.toUpperCase());
 }
+
+// ── SYMBOL_SEARCH ────────────────────────────────────────────────
+
+export interface AVSearchResult {
+  symbol:     string;   // "AAPL"
+  name:       string;   // "Apple Inc"
+  type:       string;   // "Equity"
+  region:     string;   // "United States"
+  currency:   string;   // "USD"
+  matchScore: number;   // 0-1
+}
+
+/**
+ * Alpha Vantage SYMBOL_SEARCH — 搜索美股 ticker
+ *
+ * 免费额度：25 req/day（旧版）或 5 req/min；Next.js Data Cache revalidate:3600
+ * 降低实际 API 命中次数。返回空数组时调用方应 fallback 到东方财富。
+ *
+ * 使用此接口无需额外 API Key，沿用现有 ALPHA_VANTAGE_KEY。
+ */
+export async function searchAVStocks(
+  query: string,
+  limit = 10,
+): Promise<AVSearchResult[]> {
+  if (!hasAVKey() || !query.trim()) return [];
+
+  const key = process.env.ALPHA_VANTAGE_KEY!;
+  const url =
+    `${AV_BASE}?function=SYMBOL_SEARCH` +
+    `&keywords=${encodeURIComponent(query.toUpperCase())}` +
+    `&apikey=${key}`;
+
+  try {
+    const res = await fetch(url, {
+      // 1 小时缓存 — 降低 25 req/day 消耗
+      next: { revalidate: 3600, tags: [`av-search-${query.toUpperCase()}`] },
+      headers: { "User-Agent": "QuantPlanet/1.0" },
+    });
+    if (!res.ok) return [];
+
+    const json = await res.json();
+    // Rate limit response
+    if (json["Note"] || json["Information"]) {
+      console.warn("[AV search] rate limit:", json["Note"] ?? json["Information"]);
+      return [];
+    }
+
+    const matches: Record<string, string>[] = json["bestMatches"] ?? [];
+
+    return matches
+      .filter(
+        (m) =>
+          m["3. type"] === "Equity" &&
+          (m["4. region"] === "United States" ||
+            m["4. region"] === "United States (ETF)"),
+      )
+      .slice(0, limit)
+      .map((m) => ({
+        symbol:     m["1. symbol"]      ?? "",
+        name:       m["2. name"]        ?? "",
+        type:       m["3. type"]        ?? "",
+        region:     m["4. region"]      ?? "",
+        currency:   m["8. currency"]    ?? "USD",
+        matchScore: parseFloat(m["9. matchScore"] ?? "0"),
+      }));
+  } catch (e) {
+    console.error("[AV search] error:", e);
+    return [];
+  }
+}
