@@ -1,3 +1,4 @@
 # Exclude APK download from Android assets bundle
-# (prevents recursive APK-inside-APK bundling on each cap sync)
-public/downloads/
+# Paths are relative to webDir (public/).
+# This prevents recursive APK-inside-APK bundling on each cap sync.
+downloads/
