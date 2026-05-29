@@ -459,6 +459,26 @@ export const MOCK_STRATEGIES: Strategy[] = [
     ],
     tags: ["多因子", "量化选股", "分散化"],
   },
+  {
+    id: "a-share-multi-factor",
+    name: "A股稳健多因子轮动策略",
+    description: "通过趋势、动量、质量、估值、资金、风险六类因子综合打分，筛选A股中长期强势标的，动态控制仓位。追求长期稳健收益，控制回撤，不承诺盈利。",
+    marketCondition: "全市场",
+    annualReturn: 15.3,   // ⚠️ 参考值，非真实回测
+    maxDrawdown:  18.5,   // ⚠️ 参考值，非真实回测
+    winRate:   58,
+    tradeCount: 40,
+    riskLevel: "中",
+    indicators: ["MA5", "MA20", "MA60", "动量因子", "PE/PB估值", "量比", "年化波动率"],
+    markets: ["A"],
+    params: [
+      { key: "scoreThreshold",  label: "买入评分阈值", defaultValue: 75, min: 60, max: 90, step: 5,  unit: "分" },
+      { key: "maxPositions",    label: "最大持股数",   defaultValue: 15, min: 5,  max: 20, step: 1,  unit: "只" },
+      { key: "singleStockMax",  label: "单股最大仓位", defaultValue: 8,  min: 3,  max: 15, step: 1,  unit: "%" },
+      { key: "stopLoss",        label: "止损线",       defaultValue: 8,  min: 5,  max: 15, step: 1,  unit: "%" },
+    ],
+    tags: ["趋势跟随", "多因子选股", "动态仓位", "风险控制", "中低频"],
+  },
 ];
 
 // ─── 回测结果 ─────────────────────────────────────────────────
