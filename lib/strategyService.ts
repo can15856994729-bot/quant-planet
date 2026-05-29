@@ -40,7 +40,7 @@ export const STRATEGY_POOL = [
 
 // ── Types ────────────────────────────────────────────────────────
 export type SignalAction  = "buy" | "sell" | "watch" | "hold";
-export type MarketStatus  = "强势" | "震荡" | "弱势";
+export type MarketStatus  = "强势" | "震荡" | "弱势" | "数据不足";
 
 export interface StrategySignal {
   symbol:              string;
@@ -68,7 +68,9 @@ export interface StrategyResult {
   market:                "A";
   updatedAt:             string;
   marketStatus:          MarketStatus;
-  suggestedTotalPosition: number; // 0–1
+  marketStatusNote:      string;   // explains whether real data was used
+  marketStatusDataOk:    boolean;
+  suggestedTotalPosition: number;  // 0–1
   buySignals:            StrategySignal[];
   sellSignals:           StrategySignal[];
   watchlist:             StrategySignal[];
@@ -111,6 +113,25 @@ async function fetchKlineEM(secid: string, days = 130): Promise<KLineBar[]> {
     .filter(b => b.close > 0);
 }
 
+// ── East Money index K-line (for market timing) ──────────────────
+async function fetchIndexCloses(secid: string, days = 70): Promise<number[]> {
+  const url =
+    `https://push2his.eastmoney.com/api/qt/stock/kline/get` +
+    `?secid=${secid}` +
+    `&fields1=f1,f2,f3,f4,f5,f6` +
+    `&fields2=f51,f52,f53,f54,f55,f56,f57` +
+    `&klt=101&fqt=0&beg=0&end=20500101&lmt=${days}`;   // fqt=0 for indices (no split adj)
+
+  const res = await fetch(url, {
+    headers: { Referer: "https://finance.eastmoney.com/" },
+    next:    { revalidate: 3600 },
+    signal:  AbortSignal.timeout(5000),
+  });
+  const json = await res.json();
+  const klines = (json?.data?.klines ?? []) as string[];
+  return klines.map(l => parseFloat(l.split(",")[2])).filter(v => v > 0);
+}
+
 // ── East Money batch quote (PE / PB / price) ─────────────────────
 type PoolEntry = (typeof STRATEGY_POOL)[number];
 
@@ -148,15 +169,52 @@ async function fetchBatchQuotes(pool: readonly PoolEntry[]): Promise<Record<stri
   return result;
 }
 
-// ── Market status (Phase 2: connect real index MA) ────────────────
-function assessMarketStatus(): MarketStatus {
-  // TODO Phase 2: fetch CSI300/CSI500/ChiNext K-line, compare price to MA60
-  // Conservative default until implemented
-  return "震荡";
+// ── Market timing: CSI300 vs MA60 ────────────────────────────────
+interface MarketTimingResult {
+  status:  MarketStatus;
+  note:    string;
+  dataOk:  boolean;
+}
+
+async function assessMarketStatus(): Promise<MarketTimingResult> {
+  try {
+    // 沪深300 (000300, SH): needs ≥60 trading days for MA60
+    const closes = await fetchIndexCloses("1.000300", 70);
+    if (closes.length < 62) {
+      return {
+        status: "震荡",
+        note:   `沪深300K线数据不足(${closes.length}条<62)，无法计算MA60，默认震荡`,
+        dataOk: false,
+      };
+    }
+    const cur  = closes[closes.length - 1];
+    const ma60 = closes.slice(-60).reduce((a, b) => a + b, 0) / 60;
+    const dev  = ((cur - ma60) / ma60) * 100;
+
+    let status: MarketStatus;
+    if      (dev >  3) status = "强势";
+    else if (dev < -3) status = "弱势";
+    else               status = "震荡";
+
+    return {
+      status,
+      note: `沪深300 ${cur.toFixed(0)} vs MA60 ${ma60.toFixed(0)}（偏差 ${dev > 0 ? "+" : ""}${dev.toFixed(1)}%）`,
+      dataOk: true,
+    };
+  } catch (e) {
+    return {
+      status: "数据不足",
+      note:   `指数K线获取失败（${String(e).slice(0, 60)}），择时暂不可用`,
+      dataOk: false,
+    };
+  }
 }
 
 function positionForStatus(s: MarketStatus): number {
-  return s === "强势" ? 0.85 : s === "震荡" ? 0.55 : 0.20;
+  if (s === "强势")   return 0.85;
+  if (s === "震荡")   return 0.55;
+  if (s === "弱势")   return 0.20;
+  return 0.40; // "数据不足" → conservative
 }
 
 // ── Main runner ───────────────────────────────────────────────────
@@ -227,7 +285,7 @@ export async function runAShareMultiFactorStrategy(): Promise<StrategyResult> {
   const sellSignals = signals.filter(s => s.action === "sell");
   const watchlist   = signals.filter(s => s.action === "watch").slice(0, 8);
 
-  const marketStatus = assessMarketStatus();
+  const timing = await assessMarketStatus();
   const avgScore = signals.length
     ? signals.reduce((a, s) => a + s.score, 0) / signals.length : 50;
   const riskLevel: StrategyResult["riskLevel"] =
@@ -239,17 +297,19 @@ export async function runAShareMultiFactorStrategy(): Promise<StrategyResult> {
     name:    "A股稳健多因子轮动策略",
     market:  "A",
     updatedAt: new Date().toISOString(),
-    marketStatus,
-    suggestedTotalPosition: positionForStatus(marketStatus),
+    marketStatus:        timing.status,
+    marketStatusNote:    timing.note,
+    marketStatusDataOk:  timing.dataOk,
+    suggestedTotalPosition: positionForStatus(timing.status),
     buySignals,
     sellSignals,
     watchlist,
     riskLevel,
     dataNote: [
-      "趋势/动量/量价/风险因子：来自东方财富日K线（前复权）✅",
-      "质量因子（ROE/利润增长/现金流）：暂缺财务接口，评分中性化处理 ⚠️",
-      "估值因子：仅有PE/PB，历史分位暂缺 ⚠️",
-      "市场择时（大盘状态）：Phase 2接入指数MA，当前默认「震荡」⚠️",
+      "趋势/动量/量价/风险因子：东方财富日K线（前复权）✅",
+      "质量因子（ROE/利润增长/现金流）：暂缺财务接口，中性处理 ⚠️",
+      "估值因子：仅PE/PB，历史分位暂缺 ⚠️",
+      `市场择时：${timing.dataOk ? "✅沪深300 MA60实时计算" : "⚠️" + timing.note}`,
     ].join("；"),
   };
 }

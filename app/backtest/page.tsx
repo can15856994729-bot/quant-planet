@@ -1,7 +1,7 @@
 "use client";
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, ChevronDown } from "lucide-react";
+import { BarChart3, ChevronDown, AlertTriangle, Lock } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_STRATEGIES, MOCK_STOCKS } from "@/lib/mock-data";
 
@@ -24,8 +24,11 @@ function BacktestForm() {
 
   const strategy = MOCK_STRATEGIES.find((s) => s.id === strategyId) ?? MOCK_STRATEGIES[0];
   const stock = MOCK_STOCKS.find((s) => s.symbol === symbol) ?? MOCK_STOCKS[0];
+  // Multi-factor strategy cannot run real backtest — missing historical financial data
+  const isMultiFactor = strategyId === "a-share-multi-factor";
 
   function handleRun() {
+    if (isMultiFactor) return; // guarded by disabled button
     setRunning(true);
     setTimeout(() => {
       router.push(`/backtest/result?strategy=${strategyId}&symbol=${symbol}`);
@@ -35,6 +38,25 @@ function BacktestForm() {
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
       <PageHeader title="策略回测" />
+
+      {/* ── Data status banner (only for multi-factor) ── */}
+      {isMultiFactor && (
+        <div className="mx-4 mt-4 p-3 rounded-2xl flex items-start gap-2"
+          style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.25)" }}>
+          <AlertTriangle size={14} color="#FACC15" className="flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-[12px]" style={{ color: "#FACC15" }}>
+              历史数据不足，暂不展示真实回测
+            </p>
+            <p className="text-[11px] mt-0.5 leading-[1.6]" style={{ color: "#94A3B8" }}>
+              A股多因子策略需要多年历史K线 + 财务数据（ROE/利润增长）才能运行合规回测。
+              当前接入东方财富近期行情，缺少历史财务数据，无法生成真实回测结果。
+              策略详情页可查看今日<span style={{ color: "#00E5A8" }}>实时信号</span>。
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="px-4 pt-4 space-y-4 pb-8">
 
         {/* 1. 选择股票 */}
@@ -188,25 +210,33 @@ function BacktestForm() {
         </div>
 
         {/* 运行按钮 */}
-        <button onClick={handleRun} disabled={running}
-          className="w-full py-4 rounded-2xl font-black text-[16px] glow-green active:opacity-85 transition-opacity"
-          style={{
-            background: running ? "#0d1f3c" : "linear-gradient(135deg, #00E5A8, #00b885)",
-            color: running ? "#64748B" : "#07111F",
-          }}>
-          {running ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: "#94A3B8", borderTopColor: "transparent" }} />
-              回测运行中…
-            </span>
-          ) : (
-            <span className="flex items-center justify-center gap-2">
-              <BarChart3 size={18} />
-              开始回测
-            </span>
-          )}
-        </button>
+        {isMultiFactor ? (
+          <div className="w-full py-4 rounded-2xl font-black text-[14px] flex items-center justify-center gap-2"
+            style={{ background: "#0d1f3c", border: "1px solid #1a2f50", color: "#64748B" }}>
+            <Lock size={15} />
+            历史数据不足，回测暂不可用
+          </div>
+        ) : (
+          <button onClick={handleRun} disabled={running}
+            className="w-full py-4 rounded-2xl font-black text-[16px] glow-green active:opacity-85 transition-opacity"
+            style={{
+              background: running ? "#0d1f3c" : "linear-gradient(135deg, #00E5A8, #00b885)",
+              color: running ? "#64748B" : "#07111F",
+            }}>
+            {running ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{ borderColor: "#94A3B8", borderTopColor: "transparent" }} />
+                回测运行中…
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                <BarChart3 size={18} />
+                开始回测
+              </span>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
