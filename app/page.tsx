@@ -15,7 +15,7 @@ export default function HomePage() {
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
       {/* 顶部 */}
-      <div className="flex items-center justify-between px-4 pt-12 pb-4">
+      <div className="flex items-center justify-between px-4 pb-4 page-top-pt">
         <div>
           <p className="text-[11px] font-bold tracking-widest uppercase" style={{ color: "#00E5A8" }}>QuantPlanet</p>
           <h1 className="font-black text-[20px]" style={{ color: "#F8FAFC" }}>量化星球</h1>

@@ -53,7 +53,7 @@ export default function RegisterPage() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col px-6 pt-12 pb-8" style={{ background: "#07111F" }}>
+    <div className="min-h-screen flex flex-col px-6 pb-8 page-top-pt" style={{ background: "#07111F" }}>
       <button onClick={() => router.back()} className="w-8 h-8 rounded-xl flex items-center justify-center mb-8"
         style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
         <ArrowLeft size={18} color="#94A3B8" />

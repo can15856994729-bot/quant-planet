@@ -28,8 +28,22 @@ body {
   min-height: 100vh;
 }
 
+/* ── 安全区工具类 ──────────────────────────────────────────────── */
+/* 底部：预留底部导航高度 + 系统手势条 */
 .pb-safe {
   padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+/* 顶部：供普通页面容器使用，仅补 safe-area 高度 */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+/* 顶部：供自定义 Header 使用（safe-area + 16px 内容间距） */
+.header-safe-pt {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
+}
+/* 顶部：供页面顶部区（无 Header 组件）使用（safe-area + 12px） */
+.page-top-pt {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
 }
 
 .card {

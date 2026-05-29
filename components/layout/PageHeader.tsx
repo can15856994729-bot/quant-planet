@@ -12,8 +12,12 @@ export default function PageHeader({ title, showBack = true, right }: Props) {
   const router = useRouter();
   return (
     <div
-      className="sticky top-0 z-40 flex items-center gap-3 px-4 py-4"
-      style={{ background: "rgba(7,17,31,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid #1a2f50" }}
+      className="sticky top-0 z-40 flex items-center gap-3 px-4 pb-4 header-safe-pt"
+      style={{
+        background: "rgba(7,17,31,0.95)",
+        backdropFilter: "blur(12px)",
+        borderBottom: "1px solid #1a2f50",
+      }}
     >
       {showBack && (
         <button onClick={() => router.back()} className="w-8 h-8 flex items-center justify-center active:opacity-60">
