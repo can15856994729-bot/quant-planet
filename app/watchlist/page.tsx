@@ -1,14 +1,15 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Star, TrendingUp, TrendingDown, X, Check, Loader2 } from "lucide-react";
+import { Plus, Search, Star, TrendingUp, TrendingDown, X, Check, Loader2, Database } from "lucide-react";
 import { DEFAULT_WATCHLIST } from "@/lib/mock-data";
-import { ALL_STOCKS, getStockBySymbol } from "@/lib/stockService";
+import { getStockBySymbol } from "@/lib/stockService";
 import type { StockInfo, Market } from "@/lib/stockService";
 import PageHeader from "@/components/layout/PageHeader";
 import { formatPct, formatPrice, pnlColor, marketColor, formatMarket } from "@/lib/utils";
 import { useWatchlistQuotes } from "@/lib/useMarketData";
 import { useStockSearch } from "@/lib/useStockSearch";
+import { useMarketStats } from "@/lib/useMarketStats";
 
 type MarketTab = "全部" | "A股" | "港股" | "美股";
 const MARKET_MAP: Record<MarketTab, Market | null> = {
@@ -33,6 +34,9 @@ export default function WatchlistPage() {
   const [showAdd, setShowAdd]   = useState(false);
   const [search, setSearch]     = useState("");
   const [pickerTab, setPickerTab] = useState<MarketTab>("全部");
+
+  // 市场接入统计
+  const { stats, loading: statsLoading, error: statsError, getStat } = useMarketStats();
 
   const allWatched = buildWatchedStocks(watchlist);
   const stocks = activeTab === "全部"
@@ -192,7 +196,13 @@ export default function WatchlistPage() {
                 <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>
                   添加自选股
                   <span className="ml-2 text-[12px] font-normal" style={{ color: "#94A3B8" }}>
-                    已选 {watchlist.length} 只 · 共 {pickerStocks.length > 0 ? `${pickerStocks.length}+` : "280+"} 支
+                    已选 {watchlist.length} 只 ·{" "}
+                    {statsLoading
+                      ? "统计中…"
+                      : statsError
+                      ? "全市场"
+                      : `共 ${(stats?.total ?? 0).toLocaleString("zh-CN")} 只`
+                    }
                   </span>
                 </p>
                 <button onClick={closeAdd}
@@ -224,20 +234,87 @@ export default function WatchlistPage() {
                 )}
               </div>
 
-              {/* 市场筛选 */}
+              {/* 市场筛选（带数量 badge） */}
               <div className="flex gap-2">
-                {(["全部", "A股", "港股", "美股"] as const).map((tab) => (
-                  <button key={tab} onClick={() => setPickerTab(tab)}
-                    className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold"
-                    style={{
-                      background: pickerTab === tab ? "rgba(0,229,168,0.15)" : "#0d1f3c",
-                      color:      pickerTab === tab ? "#00E5A8" : "#94A3B8",
-                      border:     `1px solid ${pickerTab === tab ? "#00E5A8" : "#1a2f50"}`,
-                    }}>
-                    {tab}
-                  </button>
-                ))}
+                {(["全部", "A股", "港股", "美股"] as const).map((tab) => {
+                  const active = pickerTab === tab;
+                  // 从 stats 取真实市场池数量
+                  let poolCount: number | null = null;
+                  if (stats) {
+                    if (tab === "全部") poolCount = stats.total;
+                    else if (tab === "A股")  poolCount = getStat("A")?.count  ?? null;
+                    else if (tab === "港股") poolCount = getStat("HK")?.count ?? null;
+                    else if (tab === "美股") poolCount = getStat("US")?.count ?? null;
+                  }
+                  const badgeText = statsLoading
+                    ? "…"
+                    : poolCount !== null
+                    ? poolCount >= 1000
+                      ? `${(poolCount / 1000).toFixed(1)}k`
+                      : String(poolCount)
+                    : null;
+
+                  return (
+                    <button key={tab} onClick={() => setPickerTab(tab)}
+                      className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1"
+                      style={{
+                        background: active ? "rgba(0,229,168,0.15)" : "#0d1f3c",
+                        color:      active ? "#00E5A8" : "#94A3B8",
+                        border:     `1px solid ${active ? "#00E5A8" : "#1a2f50"}`,
+                      }}>
+                      {tab}
+                      {badgeText && (
+                        <span className="text-[9px] font-black px-1 py-0.5 rounded-full leading-none"
+                          style={{
+                            background: active ? "rgba(0,229,168,0.2)" : "rgba(148,163,184,0.12)",
+                            color:      active ? "#00E5A8" : "#64748B",
+                          }}>
+                          {badgeText}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* 市场接入状态小卡片（仅无搜索词时展示） */}
+              {!search && (
+                <div className="mt-3 px-3 py-2 rounded-xl flex items-start gap-2"
+                  style={{ background: "rgba(0,229,168,0.05)", border: "1px solid rgba(0,229,168,0.12)" }}>
+                  <Database size={13} color="#00E5A8" className="mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    {statsLoading ? (
+                      <div className="flex items-center gap-1.5">
+                        <Loader2 size={11} color="#00E5A8" className="animate-spin" />
+                        <span className="text-[11px]" style={{ color: "#64748B" }}>正在获取市场数据…</span>
+                      </div>
+                    ) : statsError ? (
+                      <span className="text-[11px]" style={{ color: "#64748B" }}>数量获取失败，搜索功能正常可用</span>
+                    ) : stats ? (
+                      <div className="flex gap-3 flex-wrap">
+                        {stats.markets.map((m) => (
+                          <span key={m.market} className="text-[11px] flex items-center gap-1">
+                            <span style={{ color: "#94A3B8" }}>{m.name}</span>
+                            <span className="font-bold num" style={{ color: "#F8FAFC" }}>
+                              {m.count >= 1000
+                                ? `${m.count.toLocaleString("zh-CN")}只`
+                                : `${m.count}只`}
+                            </span>
+                            <span className="text-[9px] px-1 py-0.5 rounded font-bold"
+                              style={{
+                                background: m.coverage === "full"
+                                  ? "rgba(0,229,168,0.12)" : "rgba(250,204,21,0.12)",
+                                color: m.coverage === "full" ? "#00E5A8" : "#FACC15",
+                              }}>
+                              {m.coverageLabel}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 提示文字 */}

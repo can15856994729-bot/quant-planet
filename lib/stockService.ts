@@ -283,6 +283,14 @@ const US_STOCKS: StockInfo[] = [
 // ─── Combined stock list ──────────────────────────────────────
 export const ALL_STOCKS: StockInfo[] = [...A_STOCKS, ...HK_STOCKS, ...US_STOCKS];
 
+/** 本地股票库各市场数量（静态，用于 fallback 显示） */
+export const LOCAL_STOCK_COUNTS = {
+  A:     A_STOCKS.length,
+  HK:    HK_STOCKS.length,
+  US:    US_STOCKS.length,
+  total: A_STOCKS.length + HK_STOCKS.length + US_STOCKS.length,
+} as const;
+
 // Build fast lookup map
 const STOCK_MAP = new Map<string, StockInfo>(
   ALL_STOCKS.map((s) => [s.symbol.toUpperCase(), s])
