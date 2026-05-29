@@ -35,15 +35,15 @@ export default function HomePage() {
         <div className="grid grid-cols-2 gap-2.5">
           <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>我的真实账户</p>
-            <p className="font-black text-[20px] num" style={{ color: "#F8FAFC" }}>¥0.00</p>
+            <p className="font-black text-[18px] num" style={{ color: "#F8FAFC" }}>¥100,053,379</p>
             <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>
-              今日 <span style={{ color: "#94A3B8" }} className="font-semibold">¥0.00</span>
+              今日 <span className="up font-semibold">+¥0.00</span>
             </p>
           </div>
           <Link href="/sim-trading">
             <div className="p-3 rounded-2xl h-full" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
               <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>我的模拟账户</p>
-              <p className="font-black text-[20px] num up">+{MOCK_SIM_ACCOUNT.totalReturnPct.toFixed(2)}%</p>
+              <p className="font-black text-[18px] num" style={{ color: "#F8FAFC" }}>¥{MOCK_SIM_ACCOUNT.totalValue.toLocaleString()}</p>
               <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>今日 <span className="up font-semibold">+{MOCK_SIM_ACCOUNT.todayPnlPct.toFixed(2)}%</span></p>
             </div>
           </Link>

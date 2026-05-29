@@ -544,13 +544,13 @@ export const MOCK_BACKTEST: BacktestResult = {
 // ─── 模拟账户 ─────────────────────────────────────────────────
 export const MOCK_SIM_ACCOUNT: SimAccount = {
   id: "sim001",
-  initialCapital: 1000000,
-  cash: 412350,
-  totalValue: 1023100,
-  totalReturn: 23100,
-  totalReturnPct: 2.31,
-  todayPnl: 4280,
-  todayPnlPct: 0.42,
+  initialCapital: 100000000,
+  cash: 41235000,
+  totalValue: 127383729,
+  totalReturn: 27383729,
+  totalReturnPct: 27.38,
+  todayPnl: 428000,
+  todayPnlPct: 0.34,
   positions: [
     {
       symbol: "600519", name: "贵州茅台", market: "A",
