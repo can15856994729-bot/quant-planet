@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Search, Star, TrendingUp, TrendingDown, X } from "lucide-react";
+import { Plus, Search, Star, TrendingUp, TrendingDown, X, Check } from "lucide-react";
 import { MOCK_STOCKS, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import PageHeader from "@/components/layout/PageHeader";
 import { formatPct, formatPrice, pnlColor, marketColor, formatMarket } from "@/lib/utils";
@@ -14,19 +14,41 @@ const MARKET_MAP: Record<MarketTab, string | null> = {
 
 export default function WatchlistPage() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
-  const [search, setSearch] = useState("");
-  const [showAdd, setShowAdd] = useState(false);
   const [activeTab, setActiveTab] = useState<MarketTab>("全部");
+
+  // 添加面板
+  const [showAdd, setShowAdd]   = useState(false);
+  const [search, setSearch]     = useState("");
+  const [pickerTab, setPickerTab] = useState<MarketTab>("全部");
 
   const allWatched = MOCK_STOCKS.filter((s) => watchlist.includes(s.symbol));
   const stocks = activeTab === "全部"
     ? allWatched
     : allWatched.filter((s) => s.market === MARKET_MAP[activeTab]);
   const { quotes, realData } = useWatchlistQuotes(allWatched.map((s) => s.symbol));
-  const searchResults = MOCK_STOCKS.filter((s) =>
-    !watchlist.includes(s.symbol) &&
-    (s.name.includes(search) || s.symbol.toLowerCase().includes(search.toLowerCase()))
-  );
+
+  // 选股面板：所有股票（含已添加），按市场 tab 过滤 + 搜索
+  const pickerStocks = useMemo(() =>
+    MOCK_STOCKS.filter((s) => {
+      const matchTab = pickerTab === "全部" || s.market === MARKET_MAP[pickerTab];
+      const matchSearch = !search ||
+        s.name.includes(search) ||
+        s.symbol.toLowerCase().includes(search.toLowerCase());
+      return matchTab && matchSearch;
+    }),
+  [pickerTab, search]);
+
+  function toggleStock(symbol: string) {
+    setWatchlist((prev) =>
+      prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol]
+    );
+  }
+
+  function closeAdd() {
+    setShowAdd(false);
+    setSearch("");
+    setPickerTab("全部");
+  }
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
@@ -34,47 +56,13 @@ export default function WatchlistPage() {
         title="我的自选股"
         showBack={false}
         right={
-          <button onClick={() => setShowAdd(!showAdd)}
+          <button onClick={() => setShowAdd(true)}
             className="w-8 h-8 rounded-xl flex items-center justify-center"
             style={{ background: "rgba(0,229,168,0.12)", border: "1px solid rgba(0,229,168,0.25)" }}>
             <Plus size={18} color="#00E5A8" />
           </button>
         }
       />
-
-      {/* 搜索/添加面板 */}
-      {showAdd && (
-        <div className="px-4 py-3" style={{ borderBottom: "1px solid #1a2f50", background: "#0a1628" }}>
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3"
-            style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <Search size={15} color="#94A3B8" />
-            <input
-              className="flex-1 bg-transparent text-[14px] outline-none"
-              style={{ color: "#F8FAFC" }}
-              placeholder="搜索股票名称或代码…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
-            {(search ? searchResults : MOCK_STOCKS.filter((s) => !watchlist.includes(s.symbol))).slice(0, 6).map((s) => (
-              <div key={s.symbol}
-                className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer active:opacity-70"
-                style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}
-                onClick={() => { setWatchlist([...watchlist, s.symbol]); setShowAdd(false); setSearch(""); }}>
-                <div>
-                  <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
-                  <span className="ml-2 text-[10px]" style={{ color: marketColor(s.market) }}>{s.symbol}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-bold" style={{ color: pnlColor(s.changePct) }}>{formatPct(s.changePct)}</span>
-                  <Plus size={16} color="#00E5A8" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* 市场分类标签 */}
       <div className="flex gap-2 px-4 py-3 overflow-x-auto">
@@ -113,7 +101,7 @@ export default function WatchlistPage() {
       </div>
 
       {/* 股票列表 */}
-      <div className="px-4 space-y-2 pb-4">
+      <div className="px-4 space-y-2 pb-28">
         {stocks.map((s) => (
           <div key={s.symbol} className="relative">
             <Link href={`/stock/${s.symbol}`}>
@@ -135,7 +123,7 @@ export default function WatchlistPage() {
                     <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right pr-6">
                   <div className="flex items-center justify-end gap-1 mb-0.5">
                     {realData && quotes[s.symbol] && (
                       <span className="text-[9px] px-1 py-0.5 rounded font-bold"
@@ -149,7 +137,8 @@ export default function WatchlistPage() {
                     {(quotes[s.symbol]?.changePct ?? s.changePct) > 0
                       ? <TrendingUp size={11} color="#00E5A8" />
                       : <TrendingDown size={11} color="#EF4444" />}
-                    <span className="font-bold text-[13px] num" style={{ color: pnlColor(quotes[s.symbol]?.changePct ?? s.changePct) }}>
+                    <span className="font-bold text-[13px] num"
+                      style={{ color: pnlColor(quotes[s.symbol]?.changePct ?? s.changePct) }}>
                       {formatPct(quotes[s.symbol]?.changePct ?? s.changePct)}
                     </span>
                   </div>
@@ -173,11 +162,135 @@ export default function WatchlistPage() {
               {activeTab === "全部" ? "暂无自选股" : `暂无${activeTab}自选股`}
             </p>
             <p className="text-[12px] mt-1" style={{ color: "#94A3B8" }}>
-              {activeTab === "全部" ? "点击右上角 + 添加" : "点击右上角 + 添加对应市场股票"}
+              点击右上角 + 添加股票
             </p>
           </div>
         )}
       </div>
+
+      {/* ── 添加自选股面板（底部弹出） ── */}
+      {showAdd && (
+        <div className="fixed inset-0 z-[100] flex items-end"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeAdd(); }}>
+          <div className="w-full max-w-[480px] mx-auto rounded-t-3xl flex flex-col"
+            style={{ background: "#0a1628", border: "1px solid #1a2f50", maxHeight: "88vh" }}>
+
+            {/* 头部 */}
+            <div className="flex-shrink-0 px-5 pt-4 pb-3">
+              <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#1a2f50" }} />
+              <div className="flex items-center justify-between mb-3">
+                <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>
+                  添加自选股
+                  <span className="ml-2 text-[12px] font-normal" style={{ color: "#94A3B8" }}>
+                    已选 {watchlist.length} 只
+                  </span>
+                </p>
+                <button onClick={closeAdd}
+                  className="w-7 h-7 rounded-full flex items-center justify-center"
+                  style={{ background: "#1a2f50" }}>
+                  <X size={14} color="#94A3B8" />
+                </button>
+              </div>
+
+              {/* 搜索框 */}
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3"
+                style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+                <Search size={14} color="#94A3B8" />
+                <input
+                  autoFocus
+                  className="flex-1 bg-transparent text-[14px] outline-none"
+                  style={{ color: "#F8FAFC" }}
+                  placeholder="搜索股票名称或代码…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button onClick={() => setSearch("")}>
+                    <X size={13} color="#64748B" />
+                  </button>
+                )}
+              </div>
+
+              {/* 市场筛选 */}
+              <div className="flex gap-2">
+                {(["全部", "A股", "港股", "美股"] as const).map((tab) => (
+                  <button key={tab} onClick={() => setPickerTab(tab)}
+                    className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold"
+                    style={{
+                      background: pickerTab === tab ? "rgba(0,229,168,0.15)" : "#0d1f3c",
+                      color:      pickerTab === tab ? "#00E5A8" : "#94A3B8",
+                      border:     `1px solid ${pickerTab === tab ? "#00E5A8" : "#1a2f50"}`,
+                    }}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 股票列表（可滚动） */}
+            <div className="flex-1 overflow-y-auto px-5 pb-8 space-y-2">
+              {pickerStocks.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-[13px]" style={{ color: "#64748B" }}>未找到相关股票</p>
+                </div>
+              ) : (
+                pickerStocks.map((s) => {
+                  const added = watchlist.includes(s.symbol);
+                  return (
+                    <button key={s.symbol}
+                      className="w-full flex items-center justify-between p-3 rounded-xl active:opacity-70"
+                      style={{
+                        background: added ? "rgba(0,229,168,0.06)" : "#0d1f3c",
+                        border: `1px solid ${added ? "rgba(0,229,168,0.25)" : "#1a2f50"}`,
+                      }}
+                      onClick={() => toggleStock(s.symbol)}>
+                      {/* 左：头像 + 名称 */}
+                      <div className="flex items-center gap-2.5 text-left">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[13px] flex-shrink-0"
+                          style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
+                          {s.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
+                            <span className="text-[10px] px-1 py-0.5 rounded font-bold"
+                              style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
+                              {formatMarket(s.market)}
+                            </span>
+                          </div>
+                          <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
+                        </div>
+                      </div>
+                      {/* 右：价格 + 添加/已添加 */}
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right">
+                          <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>
+                            {formatPrice(s.price, s.currency)}
+                          </p>
+                          <p className="text-[11px] num font-semibold" style={{ color: pnlColor(s.changePct) }}>
+                            {formatPct(s.changePct)}
+                          </p>
+                        </div>
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{
+                            background: added ? "rgba(0,229,168,0.15)" : "rgba(0,229,168,0.1)",
+                            border: `1px solid ${added ? "#00E5A8" : "rgba(0,229,168,0.3)"}`,
+                          }}>
+                          {added
+                            ? <Check size={14} color="#00E5A8" />
+                            : <Plus size={14} color="#00E5A8" />
+                          }
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
