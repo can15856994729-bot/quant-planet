@@ -9,8 +9,16 @@ interface Props {
 }
 
 export default function StockPriceCard({ initialStock }: Props) {
-  const { stock, realData } = useStockQuote(initialStock.symbol);
+  const { stock, realData, source } = useStockQuote(initialStock.symbol);
   const s = stock ?? initialStock;
+
+  // Source badge
+  const badge =
+    source === "alphavantage"
+      ? { label: "AV实时", bg: "rgba(59,130,246,0.15)", color: "#3B82F6" }
+      : realData
+      ? { label: "实时", bg: "rgba(0,229,168,0.12)", color: "#00E5A8" }
+      : null;
 
   return (
     <div className="flex items-start justify-between mb-3">
@@ -21,9 +29,11 @@ export default function StockPriceCard({ initialStock }: Props) {
             style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
             {formatMarket(s.market)}
           </span>
-          {realData && (
+          {badge && (
             <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
-              style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+              style={{ background: badge.bg, color: badge.color }}>
+              {badge.label}
+            </span>
           )}
         </div>
         <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>

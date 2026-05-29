@@ -1,98 +1,111 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStockBySymbol } from "@/lib/stockService";
+import { fetchAVQuote, isUSSymbol, hasAVKey } from "@/lib/alphaVantage";
 
-// East Money secid auto-detection
+// ── East Money secid helper ────────────────────────────────────
 function getSecid(symbol: string): string | null {
-  // US stocks (letters/dots, no leading digit)
-  if (/^[A-Z][A-Z.]*$/.test(symbol)) return `105.${symbol}`;
-  // HK stocks (exactly 5 digits)
+  if (isUSSymbol(symbol)) return `105.${symbol}`;
   if (/^\d{5}$/.test(symbol)) return `116.${symbol}`;
-  // A-share: length must be 6 digits
   if (symbol.length !== 6 || !/^\d+$/.test(symbol)) return null;
-  // STAR/SH: 6xxxxx, 5xxxxx, 9xxxxx, 603xxx, 601xxx, 600xxx, 688xxx
-  if (/^[1-9]/.test(symbol)) return `1.${symbol}`;
-  // SZ: 0xxxxx, 3xxxxx (ChiNext), 002xxx, etc.
+  if (/^[69]/.test(symbol) || symbol.startsWith("688")) return `1.${symbol}`;
   return `0.${symbol}`;
 }
 
+// GET /api/quote?symbol=AAPL  or  /api/quote?symbol=600519
 export async function GET(req: NextRequest) {
   const symbol = (req.nextUrl.searchParams.get("symbol") ?? "").toUpperCase().trim();
   if (!symbol) return NextResponse.json({ error: "symbol required" }, { status: 400 });
 
-  const secid = getSecid(symbol);
+  const staticStock = getStockBySymbol(symbol);
+  const now = new Date().toISOString();
 
-  if (!secid) {
-    const stock = getStockBySymbol(symbol);
-    if (stock) {
-      return NextResponse.json({
-        symbol,
-        name: stock.name,
-        price: stock.price,
-        change: stock.change,
-        changePct: stock.changePct,
-        high: stock.price * 1.02,
-        low: stock.price * 0.98,
-        open: stock.price,
-        prevClose: stock.price - stock.change,
-        volume: stock.volume,
-        marketCap: stock.marketCap,
-        isRealtime: false,
-        ok: true,
-      });
-    }
-    return NextResponse.json({ error: "unknown symbol" }, { status: 400 });
+  // ── US stock: try Alpha Vantage first ─────────────────────────
+  if (isUSSymbol(symbol) && hasAVKey()) {
+    try {
+      const q = await fetchAVQuote(symbol);
+      if (q && q.price > 0) {
+        return NextResponse.json({
+          symbol,
+          name: staticStock?.name ?? staticStock?.nameEn ?? q.symbol,
+          price:     q.price,
+          change:    q.change,
+          changePct: q.changePct,
+          open:      q.open,
+          high:      q.high,
+          low:       q.low,
+          prevClose: q.prevClose,
+          volume:    q.volume,
+          marketCap: staticStock?.marketCap,
+          isRealtime: true,
+          source: "alphavantage",
+          latestDay: q.latestDay,
+          updatedAt: now,
+          ok: true,
+        });
+      }
+    } catch { /* fall through */ }
   }
 
-  try {
-    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f57,f58,f60,f169,f170,f116,f117`;
-    const res = await fetch(url, {
-      headers: { Referer: "https://finance.eastmoney.com/" },
-      next: { revalidate: 10 },
-    });
-    const json = await res.json();
-    const d = json?.data;
-    if (!d || d.f43 === undefined || d.f43 === "-") throw new Error("no data");
+  // ── East Money (A股 / HK, and US fallback) ────────────────────
+  const secid = getSecid(symbol);
+  if (secid) {
+    try {
+      const url =
+        `https://push2.eastmoney.com/api/qt/stock/get` +
+        `?secid=${secid}&fields=f43,f44,f45,f46,f47,f57,f58,f60,f169,f170,f116,f117`;
+      const res = await fetch(url, {
+        headers: { Referer: "https://finance.eastmoney.com/" },
+        next: { revalidate: 15 },
+      });
+      const json = await res.json();
+      const d = json?.data;
+      if (d && d.f43 !== undefined && d.f43 !== "-") {
+        const isUS = isUSSymbol(symbol);
+        const divisor = isUS ? 1000 : 100;
+        const price = Number(d.f43) / divisor;
+        if (price > 0) {
+          return NextResponse.json({
+            symbol,
+            name: staticStock?.name ?? String(d.f58 ?? symbol),
+            price,
+            change:    Number(d.f169) / divisor,
+            changePct: Number(d.f170) / 100,
+            high:      Number(d.f44) / divisor,
+            low:       Number(d.f45) / divisor,
+            open:      Number(d.f46) / divisor,
+            prevClose: Number(d.f60) / divisor,
+            volume:    d.f47,
+            marketCap: d.f116,
+            isRealtime: true,
+            source: "eastmoney",
+            updatedAt: now,
+            ok: true,
+          });
+        }
+      }
+    } catch { /* fall through to static */ }
+  }
 
-    const isUS = secid.startsWith("105.");
-    const divisor = isUS ? 1000 : 100;
-    const price = Number(d.f43) / divisor;
-    if (!price || price <= 0) throw new Error("invalid price");
-
+  // ── Static fallback ───────────────────────────────────────────
+  if (staticStock) {
     return NextResponse.json({
       symbol,
-      name:       d.f58,
-      price,
-      change:     Number(d.f169) / divisor,
-      changePct:  Number(d.f170) / 100,
-      high:       Number(d.f44) / divisor,
-      low:        Number(d.f45) / divisor,
-      open:       Number(d.f46) / divisor,
-      prevClose:  Number(d.f60) / divisor,
-      volume:     d.f47,
-      marketCap:  d.f116,
-      isRealtime: true,
+      name: staticStock.name,
+      price:     staticStock.price,
+      change:    staticStock.change,
+      changePct: staticStock.changePct,
+      high:      staticStock.price * 1.02,
+      low:       staticStock.price * 0.98,
+      open:      staticStock.price,
+      prevClose: staticStock.price - staticStock.change,
+      volume:    staticStock.volume,
+      marketCap: staticStock.marketCap,
+      isRealtime: false,
+      source: "static",
+      updatedAt: now,
       ok: true,
     });
-  } catch {
-    // Fallback to static data
-    const stock = getStockBySymbol(symbol);
-    if (stock) {
-      return NextResponse.json({
-        symbol,
-        name: stock.name,
-        price: stock.price,
-        change: stock.change,
-        changePct: stock.changePct,
-        high: stock.price * 1.02,
-        low: stock.price * 0.98,
-        open: stock.price,
-        prevClose: stock.price - stock.change,
-        volume: stock.volume,
-        marketCap: stock.marketCap,
-        isRealtime: false,
-        ok: true,
-      });
-    }
-    return NextResponse.json({ error: "fetch failed", ok: false }, { status: 502 });
   }
+
+  return NextResponse.json({ error: "unknown symbol", ok: false }, { status: 404 });
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MOCK_INDICES, MOCK_STOCKS } from "./mock-data";
+import { getStockBySymbol } from "./stockService";
 import type { Index, Stock } from "@/types";
 
 // ── App 回到前台时自动触发 callback ─────────────────────────────
@@ -39,13 +40,9 @@ export function useMarketIndices() {
     }
   }, []);
 
-  // 首次加载
   useEffect(() => { refresh(); }, [refresh]);
-
-  // App 回到前台自动刷新
   useOnForeground(refresh);
 
-  // 页面可见时每 30s 自动刷新
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") refresh();
@@ -56,12 +53,40 @@ export function useMarketIndices() {
   return { indices, loading, realData, refresh };
 }
 
-// ─── 单股行情 ──────────────────────────────────────────────────
+// ─── 单股行情 ─────────────────────────────────────────────────
+// 先从 stockService 获取静态基础信息（213只），再用实时 API 覆盖价格
 export function useStockQuote(symbol: string) {
-  const mockStock = MOCK_STOCKS.find((s) => s.symbol === symbol);
-  const [stock, setStock] = useState<Stock | null>(mockStock ?? null);
+  // Prefer mock data (has richer fields like high52w, pe) if available,
+  // otherwise fall back to stockService for the wider 213-stock universe
+  const mockStock   = MOCK_STOCKS.find((s) => s.symbol === symbol);
+  const svcStock    = !mockStock ? getStockBySymbol(symbol) : undefined;
+
+  // Build a baseline Stock object from whichever source we have
+  const baseStock: Stock | null = mockStock ?? (
+    svcStock
+      ? {
+          symbol:     svcStock.symbol,
+          name:       svcStock.name,
+          market:     svcStock.market as "A" | "HK" | "US",
+          currency:   svcStock.currency as "CNY" | "HKD" | "USD",
+          industry:   svcStock.industry,
+          price:      svcStock.price,
+          change:     svcStock.change,
+          changePct:  svcStock.changePct,
+          high52w:    svcStock.price * 1.25,
+          low52w:     svcStock.price * 0.75,
+          volume:     svcStock.volume ?? 0,
+          turnover:   0,
+          marketCap:  svcStock.marketCap ?? 0,
+          pe:         0,
+        }
+      : null
+  );
+
+  const [stock, setStock]     = useState<Stock | null>(baseStock);
   const [loading, setLoading] = useState(false);
-  const [realData, setRealData] = useState(false);
+  const [realData, setRealData]   = useState(false);
+  const [source, setSource]   = useState<"alphavantage" | "eastmoney" | "static" | null>(null);
 
   const fetchQuote = useCallback(async () => {
     if (!symbol) return;
@@ -69,28 +94,31 @@ export function useStockQuote(symbol: string) {
     try {
       const r = await fetch(`/api/quote?symbol=${symbol}`, { cache: "no-store" });
       const d = await r.json();
-      if (d.ok && d.price > 0 && mockStock) {
-        setStock({
-          ...mockStock,
-          price:    d.price,
-          change:   d.change,
-          changePct: d.changePct,
-          high52w:  Math.max(mockStock.high52w, d.high ?? d.price),
-          low52w:   Math.min(mockStock.low52w,  d.low  ?? d.price),
+      if (d.ok && d.price > 0) {
+        setStock((prev) => {
+          const base = prev ?? baseStock;
+          if (!base) return prev;
+          return {
+            ...base,
+            price:     d.price,
+            change:    d.change,
+            changePct: d.changePct,
+            high52w:   base.high52w ? Math.max(base.high52w, d.high ?? d.price) : d.price,
+            low52w:    base.low52w  ? Math.min(base.low52w,  d.low  ?? d.price) : d.price,
+          };
         });
         setRealData(true);
+        setSource(d.source ?? "eastmoney");
       }
     } catch {/* 静默 */}
     finally { setLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
-  // 首次加载
   useEffect(() => { fetchQuote(); }, [fetchQuote]);
-
-  // App 回到前台自动刷新
   useOnForeground(fetchQuote);
 
-  return { stock, loading, realData };
+  return { stock, loading, realData, source };
 }
 
 // ─── 多股行情（自选股 / 信号列表） ────────────────────────────
@@ -102,17 +130,27 @@ export function useWatchlistQuotes(symbols: string[]) {
   const refresh = useCallback(async () => {
     if (!symbols.length) return;
     const results: Record<string, Partial<Stock>> = {};
-    await Promise.allSettled(
-      symbols.map(async (sym) => {
-        try {
-          const r = await fetch(`/api/quote?symbol=${sym}`, { cache: "no-store" });
-          const d = await r.json();
-          if (d.ok && d.price > 0) {
-            results[sym] = { price: d.price, change: d.change, changePct: d.changePct };
+
+    // Batch fetch — POST to batch-quotes is more efficient for many symbols
+    try {
+      const r = await fetch("/api/stocks/batch-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols }),
+        cache: "no-store",
+      });
+      const data = await r.json();
+      if (data.ok && data.quotes) {
+        for (const [sym, q] of Object.entries(
+          data.quotes as Record<string, { price: number; change: number; changePct: number; isRealtime: boolean }>
+        )) {
+          if (q.price > 0) {
+            results[sym] = { price: q.price, change: q.change, changePct: q.changePct };
           }
-        } catch {/* skip */}
-      })
-    );
+        }
+      }
+    } catch {/* skip */}
+
     if (Object.keys(results).length > 0) {
       setQuotes(results);
       setRealData(true);
@@ -120,13 +158,9 @@ export function useWatchlistQuotes(symbols: string[]) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // 首次加载
   useEffect(() => { refresh(); }, [refresh]);
-
-  // App 回到前台自动刷新
   useOnForeground(refresh);
 
-  // 页面可见时每 30s 自动刷新
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") refresh();

@@ -9,9 +9,14 @@ interface QuoteData {
   price: number;
   change: number;
   changePct: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  prevClose?: number;
   volume?: number;
   marketCap?: number;
   isRealtime: boolean;
+  source?: "alphavantage" | "eastmoney" | "static";
   updatedAt: string;
 }
 
