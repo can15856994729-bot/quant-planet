@@ -8,13 +8,14 @@ import type { StockInfo, Market, Exchange }    from "@/lib/stockService";
 /**
  * GET /api/stocks/search?q=茅台&market=A&limit=20
  *
- * ┌──────────────┬─────────────────────────────────────────────────┐
- * │ market=A     │ 东方财富 suggest → 沪深北全市场 5500+ 只           │
- * │ market=HK    │ 东方财富 suggest → 港股主板/创业板（代码/中英文名） │
- * │ market=US    │ Alpha Vantage SYMBOL_SEARCH + 东方财富 US fallback│
- * │ 无 market    │ 东方财富 suggest 全市场（A+HK+US 合并返回）        │
- * │ 空查询       │ 本地热门股票（快速，无外部请求）                    │
- * └──────────────┴─────────────────────────────────────────────────┘
+ * ┌──────────────┬────────────────────────────────────────────────────────┐
+ * │ market=A     │ 东方财富 suggest → 沪深北全市场 5500+（名称/拼音/代码）  │
+ * │ market=HK    │ 东方财富 suggest → 港股主板（中文/英文/5位代码）         │
+ * │ market=US    │ 东方财富 US + Alpha Vantage SYMBOL_SEARCH 并发合并       │
+ * │              │  → NYSE/NASDAQ/AMEX 全市场 ticker / 公司名搜索           │
+ * │ 无 market    │ 东方财富 suggest 全市场（A+HK+US 合并返回）               │
+ * │ 空查询       │ 本地热门股票（快速，无外部请求）                           │
+ * └──────────────┴────────────────────────────────────────────────────────┘
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -113,48 +114,56 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ ...local, source: "local", ok: true });
 }
 
-// ── 美股搜索（AV 优先 + EM fallback） ─────────────────────────
+// ── 美股搜索（EM + AV 并发合并） ──────────────────────────────
+//
+// 优先级：EM（有实时价格、无速率限制）→ AV 补充长尾 ticker
+// AV SYMBOL_SEARCH 25 req/day 免费额度，作为 EM 的补充（不是主力）
 
 async function searchUS(query: string, limit: number): Promise<StockInfo[]> {
-  const results: StockInfo[] = [];
+  // 并发请求两个来源
+  const [emSettled, avSettled] = await Promise.allSettled([
+    searchEMByMarket(query, "US", limit),
+    hasAVKey() ? searchAVStocks(query, Math.ceil(limit / 2)) : Promise.resolve([]),
+  ]);
 
-  // 1. Alpha Vantage SYMBOL_SEARCH（如有 Key）
-  if (hasAVKey()) {
-    try {
-      const avResults = await searchAVStocks(query, limit);
-      for (const av of avResults) {
-        results.push({
-          symbol:    av.symbol,
-          name:      av.name,
-          nameEn:    av.name,
-          market:    "US",
-          exchange:  "NYSE",
-          industry:  "",
-          currency:  "USD",
-          price:     0,
-          change:    0,
-          changePct: 0,
-          volume:    0,
-          marketCap: 0,
-        });
-      }
-    } catch { /* skip */ }
+  const emUS  = emSettled.status === "fulfilled" ? emSettled.value : [];
+  const avList = avSettled.status === "fulfilled" ? avSettled.value : [];
+
+  const seen = new Set<string>();
+  const merged: StockInfo[] = [];
+
+  // EM 结果优先（含实时价格）
+  for (const s of emUS) {
+    const key = s.symbol.toUpperCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(emToStockInfo(s));
+    }
   }
 
-  // 2. 东方财富 suggest（包含在其数据库的美股，major tickers）
-  if (results.length < limit) {
-    try {
-      const emUS = await searchEMByMarket(query, "US", limit - results.length);
-      const existing = new Set(results.map((r) => r.symbol.toUpperCase()));
-      for (const s of emUS) {
-        if (!existing.has(s.symbol.toUpperCase())) {
-          results.push(emToStockInfo(s));
-        }
-      }
-    } catch { /* skip */ }
+  // AV 补充（EM 未收录的长尾 ticker）
+  for (const av of avList) {
+    const key = av.symbol.toUpperCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push({
+        symbol:    av.symbol,
+        name:      av.name,
+        nameEn:    av.name,
+        market:    "US",
+        exchange:  "NYSE",
+        industry:  "",
+        currency:  "USD",
+        price:     0,
+        change:    0,
+        changePct: 0,
+        volume:    0,
+        marketCap: 0,
+      });
+    }
   }
 
-  return results.slice(0, limit);
+  return merged.slice(0, limit);
 }
 
 // ── 类型转换 ────────────────────────────────────────────────────

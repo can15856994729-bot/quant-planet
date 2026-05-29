@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { listEMStocks, listEMHKStocks } from "@/lib/eastMoneySearch";
-import { searchStocks }                 from "@/lib/stockService";
-import type { Market }                  from "@/lib/stockService";
+import { NextRequest, NextResponse }                      from "next/server";
+import { listEMStocks, listEMHKStocks, listEMUSStocks }   from "@/lib/eastMoneySearch";
+import { searchStocks }                                    from "@/lib/stockService";
+import type { Market }                                     from "@/lib/stockService";
 
 /**
  * GET /api/stocks/list?market=A&page=1&limit=50&sort=marketCap
  *
  * A 股：东方财富 clist — 5500+ 全量，含实时价格
  * 港 股：东方财富 clist — 港股主板，含实时价格
- * 美 股：本地 68 只（AV 无免费的 browse API）
+ * 美 股：东方财富 clist — NYSE/NASDAQ/AMEX，约 7000+ 只，含实时价格
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -67,7 +67,40 @@ export async function GET(req: NextRequest) {
     } catch { /* fall through */ }
   }
 
-  // ── 美股 / fallback → 本地 stockService ─────────────────────
+  // ── 美股 → 东方财富美股 clist（NYSE/NASDAQ/AMEX） ────────────
+  if (market === "US") {
+    try {
+      const result = await listEMUSStocks(page, limit, sortField, sortDesc);
+      if (result.stocks.length > 0) {
+        return NextResponse.json({
+          stocks: result.stocks.map((s) => ({
+            symbol:    s.symbol,
+            name:      s.name,
+            nameEn:    "",
+            market:    "US" as Market,
+            // EM 美股 exchange 字段为 "US"，规范化为 NYSE（clist 不区分子交易所）
+            exchange:  s.exchange === "US" ? "NYSE" : s.exchange,
+            industry:  "",
+            currency:  "USD" as const,
+            price:     s.price     ?? 0,
+            change:    s.change    ?? 0,
+            changePct: s.changePct ?? 0,
+            volume:    0,
+            marketCap: s.marketCap ?? 0,
+            turnover:  s.turnover  ?? 0,
+          })),
+          total: result.total,
+          page:  result.page,
+          limit: result.pageSize,
+          totalPages: Math.ceil(result.total / result.pageSize),
+          source: "eastmoney",
+          ok: true,
+        });
+      }
+    } catch { /* fall through to local */ }
+  }
+
+  // ── fallback → 本地 stockService ─────────────────────────────
   const sortMapped = (sortField === "turnover" || sortField === "price")
     ? "volume"
     : sortField as "marketCap" | "changePct" | "volume" | "name";

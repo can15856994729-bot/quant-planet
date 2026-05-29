@@ -1,14 +1,17 @@
 /**
  * 东方财富全市场搜索 & 列表
  * Suggest API:  searchapi.eastmoney.com  — 关键词（中文/拼音/代码）
- * CList API:    push2.eastmoney.com      — 分页全量列表（A股 + 港股），含实时行情
+ * CList API:    push2.eastmoney.com      — 分页全量列表（A股 + 港股 + 美股），含实时行情
  *
  * MktNum 映射：
  *   0   = SZ 深圳（A股）
  *   1   = SH 上海（A股）
  *   2   = BJ 北京（A股）
  *   116 = 港交所（港股主板）
- *   105 = 美股 NYSE/NASDAQ（major US stocks in EM database）
+ *   105 = 美股 NYSE/NASDAQ/AMEX（东方财富美股数据库，约 7000+ 只）
+ *
+ * 美股 type 值（m:105 子类型）：
+ *   t:1 = NYSE   t:2 = NASDAQ   t:3 = AMEX/OTC
  *
  * SecurityTypeName 关键字：
  *   "沪A"|"深A"|"北A" → A股
@@ -21,8 +24,10 @@ const EM_CLIST   = "https://push2.eastmoney.com/api/qt/clist/get";
 
 /** A股全市场（沪深北） */
 const EM_A_FS  = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048";
-/** 港股主板 */
+/** 港股主板 + 创业板 */
 const EM_HK_FS = "m:116+t:3,m:116+t:4";
+/** 美股全市场（NYSE + NASDAQ + AMEX） */
+const EM_US_FS = "m:105+t:1,m:105+t:2,m:105+t:3";
 
 const EM_FIELDS = "f2,f3,f4,f12,f13,f14,f20,f8";
 
@@ -224,6 +229,37 @@ export async function listEMHKStocks(
     `&fields=${EM_FIELDS}&_=${Date.now()}`;
 
   return _parseClist(url, "HK", page, pageSize, 1000);
+}
+
+// ── 美股全量列表（含实时行情） ────────────────────────────────────
+
+/**
+ * 分页获取美股全市场列表（NYSE / NASDAQ / AMEX）
+ *
+ * 价格单位：美分（USD×100） → ÷100 = USD
+ * 总量：东方财富数据库约 7 000+ 只美股
+ */
+export async function listEMUSStocks(
+  page     = 1,
+  pageSize = 50,
+  sortField: "marketCap" | "changePct" | "price" | "turnover" = "marketCap",
+  sortDesc = true,
+): Promise<EMListResult> {
+  const fidMap: Record<string, string> = {
+    marketCap: "f20",
+    changePct: "f3",
+    price:     "f2",
+    turnover:  "f8",
+  };
+  const fid = fidMap[sortField] ?? "f20";
+
+  const url =
+    `${EM_CLIST}?pn=${page}&pz=${Math.min(pageSize, 100)}&po=${sortDesc ? 1 : 0}` +
+    `&np=1&fltt=2&invt=2&fid=${fid}` +
+    `&fs=${encodeURIComponent(EM_US_FS)}` +
+    `&fields=${EM_FIELDS}&_=${Date.now()}`;
+
+  return _parseClist(url, "US", page, pageSize, 100);
 }
 
 /** 共用 clist 解析逻辑 */

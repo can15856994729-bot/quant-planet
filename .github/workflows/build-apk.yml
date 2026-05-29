@@ -44,6 +44,12 @@ jobs:
       - name: Capacitor sync Android
         run: npx cap sync android
 
+      - name: Remove APK from Android assets (prevent recursive bundling)
+        run: |
+          rm -rf android/app/src/main/assets/public/downloads
+          echo "=== assets size after cleanup ==="
+          du -sh android/app/src/main/assets/public/ || true
+
       - name: Grant Gradle execute permission
         run: chmod +x android/gradlew
 

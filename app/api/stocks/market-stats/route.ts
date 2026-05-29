@@ -1,7 +1,7 @@
-import { NextResponse }             from "next/server";
-import { listEMStocks, listEMHKStocks } from "@/lib/eastMoneySearch";
-import { hasAVKey }                 from "@/lib/alphaVantage";
-import { LOCAL_STOCK_COUNTS }       from "@/lib/stockService";
+import { NextResponse }                          from "next/server";
+import { listEMStocks, listEMHKStocks, listEMUSStocks } from "@/lib/eastMoneySearch";
+import { hasAVKey }                              from "@/lib/alphaVantage";
+import { LOCAL_STOCK_COUNTS }                    from "@/lib/stockService";
 
 /**
  * GET /api/stocks/market-stats
@@ -48,22 +48,25 @@ export async function GET() {
   const now = new Date().toISOString();
   const avKey = hasAVKey();
 
-  // ── 并发拉取 A股 + 港股总数（各取 1 条，只关心 total 字段）──────
-  const [aResult, hkResult] = await Promise.allSettled([
+  // ── 并发拉取 A股 + 港股 + 美股总数（各取 1 条，只关心 total 字段）──
+  const [aResult, hkResult, usResult] = await Promise.allSettled([
     listEMStocks(1, 1, "marketCap", true),
     listEMHKStocks(1, 1, "marketCap", true),
+    listEMUSStocks(1, 1, "marketCap", true),
   ]);
 
-  const aCount  = aResult.status  === "fulfilled" ? aResult.value.total  : 0;
-  const hkCount = hkResult.status === "fulfilled" ? hkResult.value.total : 0;
-  const usCount = LOCAL_STOCK_COUNTS.US; // 本地 83 只；AV 支持全量搜索但无 total
+  const aCount   = aResult.status  === "fulfilled" ? aResult.value.total  : 0;
+  const hkCount  = hkResult.status === "fulfilled" ? hkResult.value.total : 0;
+  const usEMCount = usResult.status === "fulfilled" ? usResult.value.total : 0;
 
   // ── 失败时 fallback 到本地已知数量 ──────────────────────────────
-  const aFinal  = aCount  > 0 ? aCount  : LOCAL_STOCK_COUNTS.A;
-  const hkFinal = hkCount > 0 ? hkCount : LOCAL_STOCK_COUNTS.HK;
+  const aFinal  = aCount    > 0 ? aCount    : LOCAL_STOCK_COUNTS.A;
+  const hkFinal = hkCount   > 0 ? hkCount   : LOCAL_STOCK_COUNTS.HK;
+  const usFinal = usEMCount > 0 ? usEMCount : LOCAL_STOCK_COUNTS.US;
 
-  const aSrc  = aCount  > 0;
-  const hkSrc = hkCount > 0;
+  const aSrc  = aCount    > 0;
+  const hkSrc = hkCount   > 0;
+  const usSrc = usEMCount > 0;
 
   const markets: MarketStat[] = [
     {
@@ -99,23 +102,27 @@ export async function GET() {
     {
       market:        "US",
       name:          "美股",
-      count:         usCount,
-      countLabel:    avKey
-        ? `${fmt(usCount)}（本地）+ 全量搜索`
-        : fmt(usCount),
-      source:        avKey ? "AlphaVantage+local" : "local",
-      sourceLabel:   avKey ? "Alpha Vantage + 本地" : "本地股票池",
-      coverage:      "partial",
-      coverageLabel: avKey ? "搜索全量 / 行情部分" : "部分接入",
-      realtime:      avKey,
+      count:         usFinal,
+      countLabel:    usSrc
+        ? fmt(usFinal)
+        : avKey
+        ? `${fmt(LOCAL_STOCK_COUNTS.US)}（本地）+ 全量搜索`
+        : fmt(LOCAL_STOCK_COUNTS.US),
+      source:        usSrc ? "EastMoney" : (avKey ? "AlphaVantage+local" : "local"),
+      sourceLabel:   usSrc ? "东方财富接口" : (avKey ? "Alpha Vantage + 本地" : "本地股票池"),
+      coverage:      usSrc ? "full"    : "partial",
+      coverageLabel: usSrc ? "NYSE/NASDAQ/AMEX" : (avKey ? "搜索全量 / 行情部分" : "部分接入"),
+      realtime:      usSrc || avKey,
       searchable:    true,
-      note:          avKey
+      note:          usSrc
+        ? `东方财富接口，NYSE/NASDAQ/AMEX 全市场，支持名称/ticker 实时搜索`
+        : avKey
         ? "已配置 Alpha Vantage Key，支持全量 NYSE/NASDAQ ticker 搜索；行情数据实时"
-        : `本地 ${usCount} 只美股；配置 ALPHA_VANTAGE_KEY 后可支持全量 ticker 搜索`,
+        : `本地 ${LOCAL_STOCK_COUNTS.US} 只美股；配置 ALPHA_VANTAGE_KEY 后可支持全量 ticker 搜索`,
     },
   ];
 
-  const totalCount = aFinal + hkFinal + usCount;
+  const totalCount = aFinal + hkFinal + usFinal;
 
   return NextResponse.json(
     {
