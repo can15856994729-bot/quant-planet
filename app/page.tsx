@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
+import { getRiskReport, riskLevelColor } from "@/lib/riskService";
 import HomeMarket from "@/components/ui/HomeMarket";
 import HomeWatchlist from "@/components/ui/HomeWatchlist";
 import HomeSignals from "@/components/ui/HomeSignals";
@@ -11,6 +12,8 @@ export default function HomePage() {
   const watchlistStocks = MOCK_STOCKS.filter((s) => DEFAULT_WATCHLIST.includes(s.symbol)).slice(0, 4);
   const buyCount  = MOCK_SIGNALS.filter((s) => s.type === "BUY" || s.type === "GOLDEN_CROSS").length;
   const sellCount = MOCK_SIGNALS.filter((s) => s.type === "SELL" || s.type === "STOP_LOSS").length;
+  const risk = getRiskReport();
+  const riskColor_ = riskLevelColor(risk.level);
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
@@ -54,14 +57,20 @@ export default function HomePage() {
               <p className="text-[12px] font-bold down mt-0.5">{sellCount} 卖出</p>
             </div>
           </Link>
-          <div className="p-3 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-            <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>当前风险</p>
-            <p className="font-black text-[20px]" style={{ color: "#FACC15" }}>中等</p>
-            <div className="flex items-center gap-1 mt-0.5">
-              <ShieldAlert size={11} color="#FACC15" />
-              <span className="text-[11px]" style={{ color: "#94A3B8" }}>仓位 58.8%</span>
+          <Link href="/risk">
+            <div className="p-3 rounded-2xl h-full active:opacity-70 transition-opacity"
+              style={{ background: "#0d1f3c", border: `1px solid ${riskColor_}25` }}>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-semibold" style={{ color: "#94A3B8" }}>当前风险</p>
+                <ChevronRight size={11} color="#64748B" />
+              </div>
+              <p className="font-black text-[20px]" style={{ color: riskColor_ }}>{risk.level}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <ShieldAlert size={11} color={riskColor_} />
+                <span className="text-[11px]" style={{ color: "#94A3B8" }}>仓位 {risk.positionRatio.toFixed(1)}%</span>
+              </div>
             </div>
-          </div>
+          </Link>
         </div>
       </div>
 
