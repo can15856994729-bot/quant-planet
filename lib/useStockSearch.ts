@@ -1,82 +1,68 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getPopularStocks } from "./stockService";
 import type { StockInfo, Market } from "./stockService";
 
 export interface UseStockSearchResult {
   results: StockInfo[];
   loading: boolean;
-  total: number;
-  error: string | null;
+  total:   number;
+  error:   string | null;
 }
 
-// Debounced stock search hook using /api/stocks/search
+/**
+ * 防抖股票搜索 Hook
+ *
+ * - 空查询 → 调用 /api/stocks/search（返回热门股票，本地快速响应）
+ * - 有查询 → 300ms 防抖后调用 API
+ *   - market=A 或无限制 → 东方财富 suggest（覆盖 5500+ 全市场）
+ *   - market=HK/US → 本地 stockService
+ */
 export function useStockSearch(
-  query: string,
+  query:  string,
   market?: Market | null,
-  limit = 30
+  limit = 30,
 ): UseStockSearchResult {
-  const [results, setResults] = useState<StockInfo[]>(() =>
-    getPopularStocks(market)
-  );
+  const [results, setResults] = useState<StockInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [total,   setTotal]   = useState(0);
+  const [error,   setError]   = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSearch = useCallback(
     async (q: string, mkt: Market | null | undefined) => {
-      // For empty query, show popular stocks immediately (no network needed)
-      if (!q.trim()) {
-        const popular = getPopularStocks(mkt);
-        setResults(popular);
-        setTotal(popular.length);
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          q,
-          limit: String(limit),
-          page: "1",
-        });
+        const params = new URLSearchParams({ limit: String(limit), page: "1" });
+        if (q) params.set("q", q);
         if (mkt) params.set("market", mkt);
 
-        const res = await fetch(`/api/stocks/search?${params}`, {
-          cache: "no-store",
-        });
+        const res  = await fetch(`/api/stocks/search?${params}`, { cache: "no-store" });
         const data = await res.json();
         if (data.ok) {
-          setResults(data.stocks);
-          setTotal(data.total);
+          setResults(data.stocks ?? []);
+          setTotal(data.total ?? 0);
         } else {
-          setError(data.error ?? "Search failed");
+          setError(data.error ?? "搜索失败");
         }
       } catch (e) {
         setError(String(e));
-        // Fallback: search locally using imported function
-        const { searchStocks } = await import("./stockService");
-        const fallback = searchStocks({ query: q, market: mkt ?? null, limit });
-        setResults(fallback.stocks);
-        setTotal(fallback.total);
+        setResults([]);
       } finally {
         setLoading(false);
       }
     },
-    [limit]
+    [limit],
   );
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
     if (!query.trim()) {
-      // Immediate for empty query
+      // 空查询：立即请求（API 返回热门股票，本地 <5ms）
       doSearch("", market);
     } else {
-      // 300ms debounce for typing
+      // 有查询：防抖 300ms
       timerRef.current = setTimeout(() => {
         doSearch(query, market);
       }, 300);
