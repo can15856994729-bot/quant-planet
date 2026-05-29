@@ -20,6 +20,10 @@ export default function HomeMarket() {
               实时
             </span>
           )}
+          <Link href="/ranking" className="flex items-center gap-0.5 text-[12px] font-semibold"
+            style={{ color: "#FACC15" }}>
+            排行榜 <ChevronRight size={13} />
+          </Link>
           <button onClick={refresh} disabled={loading}
             className="w-6 h-6 flex items-center justify-center rounded-lg"
             style={{ background: "#0a1628" }}>

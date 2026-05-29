@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download } from "lucide-react";
+import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers } from "lucide-react";
 import { MOCK_STOCKS, MOCK_SIGNALS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
 import HomeMarket from "@/components/ui/HomeMarket";
@@ -62,6 +62,29 @@ export default function HomePage() {
               <span className="text-[11px]" style={{ color: "#94A3B8" }}>仓位 58.8%</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 快捷入口 */}
+      <div className="px-4 mb-5">
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { href: "/ranking",      icon: Trophy,      label: "排行榜",  color: "#FACC15" },
+            { href: "/ranking",      icon: Flame,       label: "涨幅榜",  color: "#EF4444" },
+            { href: "/ranking",      icon: ArrowUpDown, label: "量比榜",  color: "#00E5A8" },
+            { href: "/strategies",   icon: Layers,      label: "策略库",  color: "#3B82F6" },
+          ].map(({ href, icon: Icon, label, color }) => (
+            <Link key={label} href={href}>
+              <div className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl active:opacity-70"
+                style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ background: `${color}18`, border: `1px solid ${color}25` }}>
+                  <Icon size={17} color={color} />
+                </div>
+                <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>{label}</span>
+              </div>
+            </Link>
+          ))}
         </div>
       </div>
 
