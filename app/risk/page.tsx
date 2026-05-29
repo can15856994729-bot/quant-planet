@@ -1,10 +1,12 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ShieldAlert, TrendingDown, AlertTriangle, Activity, ChevronRight, Info } from "lucide-react";
+import { ShieldAlert, TrendingDown, AlertTriangle, Activity, ChevronRight, Info, TrendingUp } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
-import { getRiskReport, riskLevelColor, riskScoreColor } from "@/lib/riskService";
-import type { RiskItem, RiskPortfolioLevel } from "@/lib/riskService";
+import { getRiskReport, riskLevelColor, riskScoreColor, buildStrategyRiskItems } from "@/lib/riskService";
+import type { RiskItem, RiskPortfolioLevel, StrategyRiskExtras } from "@/lib/riskService";
 import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
+import type { StrategyResult } from "@/lib/strategyService";
 
 // ── Item type icon ────────────────────────────────────────────────
 function RiskItemIcon({ type, level }: { type: RiskItem["type"]; level: RiskPortfolioLevel }) {
@@ -13,6 +15,7 @@ function RiskItemIcon({ type, level }: { type: RiskItem["type"]; level: RiskPort
   if (type === "concentration") return <Activity     size={15} color={color} />;
   if (type === "signal")        return <AlertTriangle size={15} color={color} />;
   if (type === "loss")          return <TrendingDown  size={15} color={color} />;
+  if (type === "market")        return <TrendingDown  size={15} color={color} />;
   return <Info size={15} color={color} />;
 }
 
@@ -53,12 +56,60 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
+function mktStatusColor(s: string) {
+  if (s === "强势") return "#00E5A8";
+  if (s === "弱势") return "#EF4444";
+  if (s === "数据不足") return "#64748B";
+  return "#FACC15";
+}
+
 export default function RiskPage() {
   const report = getRiskReport();
-  const levelColor = riskLevelColor(report.level);
   const account = MOCK_SIM_ACCOUNT;
 
-  // Dimension cards
+  // Strategy risk overlay (fetched client-side)
+  const [strategyExtras, setStrategyExtras] = useState<{
+    marketStatus: string;
+    marketStatusNote: string;
+    items: RiskItem[];
+    additionalScore: number;
+    sellCount: number;
+    buyCount: number;
+    suggestedPosition: number;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/strategy/signals")
+      .then(r => r.json())
+      .then((d: StrategyResult) => {
+        if (!d.ok) return;
+        const extras: StrategyRiskExtras = {
+          marketStatus: d.marketStatus as StrategyRiskExtras["marketStatus"],
+          marketStatusNote: d.marketStatusNote,
+          sellSignalSymbols: d.sellSignals.map(s => s.symbol),
+        };
+        const { items, additionalScore } = buildStrategyRiskItems(extras, account.positions);
+        setStrategyExtras({
+          marketStatus: d.marketStatus,
+          marketStatusNote: d.marketStatusNote,
+          items,
+          additionalScore,
+          sellCount: d.sellSignals.length,
+          buyCount: d.buySignals.length,
+          suggestedPosition: d.suggestedTotalPosition,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Merged score + level
+  const adjustedScore = Math.min(100, report.score + (strategyExtras?.additionalScore ?? 0));
+  const adjustedLevel: RiskPortfolioLevel =
+    adjustedScore >= 66 ? "高" : adjustedScore >= 36 ? "中等" : "低";
+  const levelColor = riskLevelColor(adjustedLevel);
+
+  const allItems = [...report.items, ...(strategyExtras?.items ?? [])];
+
   const dimensions = [
     {
       label: "仓位风险",
@@ -98,21 +149,21 @@ export default function RiskPage() {
       <div className="mx-4 mt-4 p-4 rounded-2xl"
         style={{ background: "#0d1f3c", border: `1px solid ${levelColor}30` }}>
         <div className="flex items-center gap-4">
-          <ScoreRing score={report.score} />
+          <ScoreRing score={adjustedScore} />
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className="font-black text-[24px]" style={{ color: levelColor }}>
-                {report.level}
+                {adjustedLevel}
               </span>
               <span className="text-[11px] px-2 py-0.5 rounded-full font-bold"
                 style={{ background: `${levelColor}18`, color: levelColor, border: `1px solid ${levelColor}30` }}>
-                {report.level === "低" ? "整体可控" : report.level === "中等" ? "需要关注" : "请及时处理"}
+                {adjustedLevel === "低" ? "整体可控" : adjustedLevel === "中等" ? "需要关注" : "请及时处理"}
               </span>
             </div>
             <p className="text-[11px] leading-[1.7]" style={{ color: "#94A3B8" }}>
-              {report.level === "低" && "当前组合风险在可控范围内，继续保持纪律。"}
-              {report.level === "中等" && "组合存在一定风险，建议关注仓位和集中度。"}
-              {report.level === "高" && "组合风险较高，建议立即审视持仓并采取降险措施。"}
+              {adjustedLevel === "低" && "当前组合风险在可控范围内，继续保持纪律。"}
+              {adjustedLevel === "中等" && "组合存在一定风险，建议关注仓位和集中度。"}
+              {adjustedLevel === "高" && "组合风险较高，建议立即审视持仓并采取降险措施。"}
             </p>
             <div className="flex items-center gap-3 mt-2">
               <span className="text-[10px]" style={{ color: "#64748B" }}>
@@ -122,12 +173,53 @@ export default function RiskPage() {
                 {account.positions.length} 只标的
               </span>
               <span className="text-[10px]" style={{ color: "#64748B" }}>
-                {report.items.length} 项风险
+                {allItems.length} 项风险
               </span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── 市场择时状态（多因子策略） ── */}
+      {strategyExtras && (
+        <div className="mx-4 mt-4">
+          <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>
+            市场择时状态
+            <span className="ml-1.5 text-[10px] font-normal" style={{ color: "#64748B" }}>多因子策略实时</span>
+          </h2>
+          <div className="p-3 rounded-2xl"
+            style={{ background: "#0d1f3c", border: `1px solid ${mktStatusColor(strategyExtras.marketStatus)}30` }}>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="font-black text-[22px]" style={{ color: mktStatusColor(strategyExtras.marketStatus) }}>
+                {strategyExtras.marketStatus}
+              </span>
+              <div className="h-8 w-px" style={{ background: "#1a2f50" }} />
+              <div>
+                <p className="text-[9px]" style={{ color: "#64748B" }}>策略建议总仓位</p>
+                <p className="font-black text-[18px] num" style={{ color: "#00E5A8" }}>
+                  {(strategyExtras.suggestedPosition * 100).toFixed(0)}%
+                </p>
+              </div>
+              <div className="h-8 w-px" style={{ background: "#1a2f50" }} />
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <TrendingUp size={11} color="#00E5A8" />
+                    <span className="text-[11px] num font-bold" style={{ color: "#00E5A8" }}>{strategyExtras.buyCount}</span>
+                    <span className="text-[9px]" style={{ color: "#64748B" }}>买入</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <TrendingDown size={11} color="#EF4444" />
+                    <span className="text-[11px] num font-bold" style={{ color: "#EF4444" }}>{strategyExtras.sellCount}</span>
+                    <span className="text-[9px]" style={{ color: "#64748B" }}>卖出</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] leading-[1.5]" style={{ color: "#64748B" }}>{strategyExtras.marketStatusNote}</p>
+          </div>
+        </div>
+      )}
 
       {/* ── 风险维度 ── */}
       <div className="mx-4 mt-4">
@@ -148,6 +240,23 @@ export default function RiskPage() {
               <GaugeBar value={dim.score} max={dim.max} color={dim.color} />
             </div>
           ))}
+          {strategyExtras && strategyExtras.additionalScore > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12px] font-semibold" style={{ color: "#F8FAFC" }}>策略风险</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]" style={{ color: "#64748B" }}>
+                    {strategyExtras.sellCount > 0 ? `${strategyExtras.sellCount}只卖出信号` : "市场状态"}
+                  </span>
+                  <span className="font-bold text-[12px] num" style={{ color: strategyExtras.additionalScore > 15 ? "#EF4444" : "#FACC15" }}>
+                    {strategyExtras.additionalScore}<span className="text-[9px] font-normal" style={{ color: "#64748B" }}>/25</span>
+                  </span>
+                </div>
+              </div>
+              <GaugeBar value={strategyExtras.additionalScore} max={25}
+                color={strategyExtras.additionalScore > 15 ? "#EF4444" : "#FACC15"} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -164,16 +273,18 @@ export default function RiskPage() {
           {account.positions.map((pos) => {
             const pct = (pos.marketValue / account.positions.reduce((s, p) => s + p.marketValue, 0)) * 100;
             const isLoss = pos.pnl < 0;
+            const hasSellSignal = strategyExtras?.items.some(i => i.id === `strategy-sell-${pos.symbol}`);
             return (
               <div key={pos.symbol} className="flex items-center gap-2">
-                <div className="w-24 flex-shrink-0">
+                <div className="w-24 flex-shrink-0 flex items-center gap-1">
                   <span className="font-semibold text-[12px]" style={{ color: "#F8FAFC" }}>{pos.name}</span>
+                  {hasSellSignal && <AlertTriangle size={10} color="#EF4444" />}
                 </div>
                 <div className="flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
                   <div className="h-full rounded-full"
                     style={{
                       width: `${pct}%`,
-                      background: isLoss ? "#EF4444" : "#00E5A8",
+                      background: hasSellSignal ? "#EF4444" : isLoss ? "#F97316" : "#00E5A8",
                     }} />
                 </div>
                 <span className="w-10 text-right text-[11px] num" style={{ color: "#94A3B8" }}>
@@ -211,8 +322,8 @@ export default function RiskPage() {
         <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>今日信号分布</h2>
         <div className="grid grid-cols-2 gap-2">
           {[
-            { label: "买入信号", value: report.buySignalCount,  color: "#00E5A8", href: "/signals" },
-            { label: "卖出信号", value: report.sellSignalCount, color: "#EF4444", href: "/signals" },
+            { label: "买入信号", value: report.buySignalCount + (strategyExtras?.buyCount ?? 0),  color: "#00E5A8", href: "/signals" },
+            { label: "卖出信号", value: report.sellSignalCount + (strategyExtras?.sellCount ?? 0), color: "#EF4444", href: "/signals" },
             { label: "止损警告", value: report.stopLossCount,   color: "#F97316", href: "/signals" },
             { label: "高风险预警",value: report.highRiskCount,  color: "#EF4444", href: "/signals" },
           ].map(({ label, value, color, href }) => (
@@ -230,13 +341,13 @@ export default function RiskPage() {
       </div>
 
       {/* ── 风险项列表 ── */}
-      {report.items.length > 0 && (
+      {allItems.length > 0 && (
         <div className="mx-4 mt-4">
           <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>
-            风险项明细 · {report.items.length} 条
+            风险项明细 · {allItems.length} 条
           </h2>
           <div className="space-y-2">
-            {report.items.map((item) => {
+            {allItems.map((item) => {
               const c = riskLevelColor(item.level);
               return (
                 <div key={item.id} className="p-3 rounded-2xl"
@@ -250,6 +361,12 @@ export default function RiskPage() {
                           style={{ background: `${c}18`, color: c }}>
                           {item.level}风险
                         </span>
+                        {item.id.startsWith("strategy-") && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                            style={{ background: "rgba(59,130,246,0.12)", color: "#3B82F6" }}>
+                            策略
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] leading-[1.6]" style={{ color: "#94A3B8" }}>{item.reason}</p>
                     </div>
@@ -268,7 +385,7 @@ export default function RiskPage() {
       )}
 
       {/* ── 无风险项 ── */}
-      {report.items.length === 0 && (
+      {allItems.length === 0 && (
         <div className="mx-4 mt-6 py-10 rounded-2xl text-center"
           style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
           <ShieldAlert size={36} color="#00E5A8" className="mx-auto mb-2" />
@@ -283,7 +400,7 @@ export default function RiskPage() {
         <div className="flex items-start gap-2">
           <Info size={11} color="#EF4444" className="flex-shrink-0 mt-0.5" />
           <p className="text-[10px] leading-[1.7]" style={{ color: "#94A3B8" }}>
-            ⚠️ 风险评分由量化模型基于当前持仓、信号和历史数据估算，仅供参考，不构成投资建议。实际风险受市场波动影响，投资者应结合自身情况作出判断。
+            ⚠️ 风险评分由量化模型基于当前持仓、多因子策略信号和市场择时综合估算，仅供参考，不构成投资建议。实际风险受市场波动影响，投资者应结合自身情况作出判断。
           </p>
         </div>
       </div>

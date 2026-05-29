@@ -1,43 +1,95 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2, AlertTriangle } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
 import { getStockBySymbol } from "@/lib/stockService";
-import type { StockInfo } from "@/lib/stockService";
+import type { StockInfo, Market, Exchange, Currency } from "@/lib/stockService";
 import { formatPrice, formatPct, pnlColor, marketColor, formatMarket, marketToCurrency } from "@/lib/utils";
 import { useStockSearch } from "@/lib/useStockSearch";
 import { useStockQuotes } from "@/lib/useStockQuote";
 
 type Tab = "持仓" | "成交" | "下单";
 
-// Default selected stock
 const DEFAULT_STOCK = getStockBySymbol("600519")!;
-
-// All position symbols + default stock for live quotes
 const POSITION_SYMBOLS = MOCK_SIM_ACCOUNT.positions.map((p) => p.symbol);
 
-export default function SimTradingPage() {
-  const [tab, setTab] = useState<Tab>("持仓");
-  const [tradeType, setTradeType] = useState<"BUY" | "SELL">("BUY");
-  const [showOrder, setShowOrder] = useState(false);
-  const [orderShares, setOrderShares] = useState("100");
-  const [orderPrice, setOrderPrice] = useState(DEFAULT_STOCK.price.toFixed(2));
+// ── Helper: build a minimal StockInfo when symbol not in database ──
+function makeStockInfo(symbol: string, name: string, price: number): StockInfo {
+  return {
+    symbol,
+    name: name || symbol,
+    market: "A",
+    exchange: "SH",
+    currency: "CNY",
+    industry: "",
+    price,
+    change: 0,
+    changePct: 0,
+  };
+}
+
+// ── Inner component that uses useSearchParams ─────────────────────
+function SimTradingContent() {
+  const searchParams = useSearchParams();
+
+  // ── Strategy order params from URL ──────────────────────────────
+  const stratSymbol     = searchParams.get("symbol") ?? "";
+  const stratName       = searchParams.get("name") ?? "";
+  const stratPrice      = parseFloat(searchParams.get("price") ?? "0");
+  const stratStopLoss   = parseFloat(searchParams.get("stopLoss") ?? "0");
+  const stratTakeProfit = parseFloat(searchParams.get("takeProfit") ?? "0");
+  const stratPct        = parseInt(searchParams.get("pct") ?? "0", 10);
+  const stratFrom       = decodeURIComponent(searchParams.get("from") ?? "");
+  const isStrategyOrder = !!(stratSymbol && stratPrice > 0);
+
+  const acc = MOCK_SIM_ACCOUNT;
+
+  // Compute initial stock (once on mount)
+  const initStock: StockInfo = isStrategyOrder
+    ? (getStockBySymbol(stratSymbol) ?? makeStockInfo(stratSymbol, stratName, stratPrice))
+    : DEFAULT_STOCK;
+
+  // Compute suggested shares from strategy position %
+  const initShares = isStrategyOrder && stratPct > 0 && stratPrice > 0
+    ? String(Math.max(100, Math.round((stratPct / 100 * acc.totalValue) / stratPrice / 100) * 100))
+    : "100";
+
+  // ── State ────────────────────────────────────────────────────────
+  const [tab, setTab]               = useState<Tab>("持仓");
+  const [tradeType, setTradeType]   = useState<"BUY" | "SELL">("BUY");
+  const [showOrder, setShowOrder]   = useState(isStrategyOrder);
+  const [orderShares, setOrderShares] = useState(initShares);
+  const [orderPrice, setOrderPrice] = useState(
+    isStrategyOrder && stratPrice > 0 ? stratPrice.toFixed(2) : DEFAULT_STOCK.price.toFixed(2)
+  );
   const [orderSuccess, setOrderSuccess] = useState(false);
-  // Track whether user has manually edited the price field
-  const priceEditedRef = useRef(false);
+  const priceEditedRef = useRef(isStrategyOrder); // treat strategy price as manually set
 
-  // 选股
-  const [selectedStock, setSelectedStock] = useState<StockInfo>(DEFAULT_STOCK);
-  const [showPicker, setShowPicker] = useState(false);
-  const [pickSearch, setPickSearch] = useState("");
+  const [selectedStock, setSelectedStock] = useState<StockInfo>(initStock);
+  const [showPicker, setShowPicker]       = useState(false);
+  const [pickSearch, setPickSearch]       = useState("");
 
-  // Real-time quotes for selected stock + all positions
+  // ── Strategy sell signal warnings for held positions ─────────────
+  const [sellWarningSymbols, setSellWarningSymbols] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetch("/api/strategy/signals")
+      .then(r => r.json())
+      .then((d) => {
+        if (d.ok && d.sellSignals) {
+          setSellWarningSymbols(new Set((d.sellSignals as { symbol: string }[]).map(s => s.symbol)));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Live quotes ──────────────────────────────────────────────────
   const allSymbols = [...new Set([selectedStock.symbol, ...POSITION_SYMBOLS])];
   const { quotes: liveQuotes } = useStockQuotes(allSymbols);
 
-  // When live quote arrives for selected stock and user hasn't manually edited price, auto-update
+  // Auto-update order price from live quote (skip if manually edited / from strategy)
   useEffect(() => {
     const livePrice = liveQuotes[selectedStock.symbol]?.price;
     if (livePrice && livePrice > 0 && !priceEditedRef.current) {
@@ -45,26 +97,33 @@ export default function SimTradingPage() {
     }
   }, [liveQuotes, selectedStock.symbol]);
 
-  // Use the new stock search hook
   const { results: pickerList, loading: searchLoading } = useStockSearch(pickSearch);
+
+  const stockRatio = ((acc.totalValue - acc.cash) / acc.totalValue * 100).toFixed(1);
+  const cashRatio  = (acc.cash / acc.totalValue * 100).toFixed(1);
 
   function selectStock(s: StockInfo) {
     setSelectedStock(s);
-    priceEditedRef.current = false; // reset manual edit flag on stock change
-    // Use live price if available, else static
+    priceEditedRef.current = false;
     const livePrice = liveQuotes[s.symbol]?.price;
     setOrderPrice((livePrice && livePrice > 0 ? livePrice : s.price).toFixed(2));
     setShowPicker(false);
     setPickSearch("");
   }
 
-  const acc = MOCK_SIM_ACCOUNT;
-  const stockRatio = ((acc.totalValue - acc.cash) / acc.totalValue * 100).toFixed(1);
-  const cashRatio = (acc.cash / acc.totalValue * 100).toFixed(1);
-
   function handleOrder() {
     setOrderSuccess(true);
     setTimeout(() => { setOrderSuccess(false); setShowOrder(false); }, 2000);
+  }
+
+  // Quick sell triggered from position sell-alert button
+  function handleQuickSell(pos: typeof acc.positions[0]) {
+    const s = getStockBySymbol(pos.symbol) ?? makeStockInfo(pos.symbol, pos.name, pos.currentPrice);
+    setSelectedStock(s);
+    setOrderPrice(pos.currentPrice.toFixed(2));
+    priceEditedRef.current = true;
+    setTradeType("SELL");
+    setShowOrder(true);
   }
 
   return (
@@ -109,7 +168,7 @@ export default function SimTradingPage() {
 
       {/* 模拟下单入口 */}
       <div className="mx-4 mt-3">
-        <button onClick={() => setShowOrder(true)}
+        <button onClick={() => { setTradeType("BUY"); setShowOrder(true); }}
           className="w-full py-3 rounded-2xl font-black text-[14px] glow-green"
           style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
           <Plus size={16} className="inline mr-1.5" />
@@ -139,64 +198,87 @@ export default function SimTradingPage() {
         {tab === "持仓" && (
           <div className="space-y-3">
             {acc.positions.map((pos) => {
-              // Use live price if available, else fall back to mock currentPrice
               const liveQ = liveQuotes[pos.symbol];
               const currentPrice = (liveQ?.price && liveQ.price > 0) ? liveQ.price : pos.currentPrice;
-              const livePnl = (currentPrice - pos.costPrice) * pos.shares;
+              const livePnl    = (currentPrice - pos.costPrice) * pos.shares;
               const livePnlPct = ((currentPrice - pos.costPrice) / pos.costPrice) * 100;
+              const hasSellAlert = sellWarningSymbols.has(pos.symbol);
               return (
-              <div key={pos.symbol} className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                <div className="flex items-center justify-between mb-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[12px]"
-                      style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
-                      {pos.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{pos.name}</span>
-                        <span className="text-[10px] px-1 py-0.5 rounded font-bold"
-                          style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
-                          {formatMarket(pos.market)}
-                        </span>
-                        {liveQ?.isRealtime && (
-                          <span className="text-[9px] px-1 py-0.5 rounded font-bold"
-                            style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
-                        )}
+                <div key={pos.symbol} className="p-4 rounded-2xl"
+                  style={{
+                    background: "#0d1f3c",
+                    border: `1px solid ${hasSellAlert ? "rgba(239,68,68,0.35)" : "#1a2f50"}`,
+                  }}>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[12px]"
+                        style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
+                        {pos.name.charAt(0)}
                       </div>
-                      <p className="text-[10px]" style={{ color: "#94A3B8" }}>{pos.symbol}</p>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{pos.name}</span>
+                          <span className="text-[10px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
+                            {formatMarket(pos.market)}
+                          </span>
+                          {liveQ?.isRealtime && (
+                            <span className="text-[9px] px-1 py-0.5 rounded font-bold"
+                              style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+                          )}
+                        </div>
+                        <p className="text-[10px]" style={{ color: "#94A3B8" }}>{pos.symbol}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-[15px] num" style={{ color: pnlColor(livePnlPct) }}>
+                        {livePnlPct > 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
+                      </p>
+                      <p className="text-[11px] num" style={{ color: pnlColor(livePnl) }}>
+                        {livePnl > 0 ? "+" : ""}¥{livePnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-[15px] num" style={{ color: pnlColor(livePnlPct) }}>
-                      {livePnlPct > 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
-                    </p>
-                    <p className="text-[11px] num" style={{ color: pnlColor(livePnl) }}>
-                      {livePnl > 0 ? "+" : ""}¥{livePnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "持仓股数", value: `${pos.shares}股` },
+                      { label: "成本价",   value: formatPrice(pos.costPrice,  marketToCurrency(pos.market)) },
+                      { label: "现价",     value: formatPrice(currentPrice,   marketToCurrency(pos.market)) },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
+                        <p className="font-semibold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>
+                        <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: "持仓股数", value: `${pos.shares}股` },
-                    { label: "成本价",   value: formatPrice(pos.costPrice,  marketToCurrency(pos.market)) },
-                    { label: "现价",     value: formatPrice(currentPrice,   marketToCurrency(pos.market)) },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
-                      <p className="font-semibold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>
-                      <p className="text-[10px] mt-0.5" style={{ color: "#94A3B8" }}>{label}</p>
+
+                  {/* 来源策略 */}
+                  {pos.strategy && (
+                    <div className="mt-2 flex items-center gap-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full"
+                        style={{ background: "rgba(0,229,168,0.08)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.15)" }}>
+                        📊 {pos.strategy}
+                      </span>
                     </div>
-                  ))}
+                  )}
+
+                  {/* 策略卖出警告 */}
+                  {hasSellAlert && (
+                    <div className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-xl"
+                      style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                      <AlertTriangle size={12} color="#EF4444" className="flex-shrink-0" />
+                      <span className="text-[11px] flex-1" style={{ color: "#EF4444" }}>
+                        多因子策略建议减仓 / 卖出
+                      </span>
+                      <button
+                        onClick={() => handleQuickSell(pos)}
+                        className="text-[11px] font-bold px-2.5 py-1 rounded-lg active:opacity-70"
+                        style={{ background: "rgba(239,68,68,0.15)", color: "#EF4444", border: "1px solid rgba(239,68,68,0.3)" }}>
+                        快速下单
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {pos.strategy && (
-                  <div className="mt-2 flex items-center gap-1">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full"
-                      style={{ background: "rgba(0,229,168,0.08)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.15)" }}>
-                      {pos.strategy}
-                    </span>
-                  </div>
-                )}
-              </div>
               );
             })}
           </div>
@@ -209,7 +291,7 @@ export default function SimTradingPage() {
               <div key={tr.id} className="p-3 rounded-xl flex items-center justify-between"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-[11px]`}
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-[11px]"
                     style={{
                       background: tr.type === "BUY" ? "rgba(0,229,168,0.15)" : "rgba(239,68,68,0.15)",
                       color: tr.type === "BUY" ? "#00E5A8" : "#EF4444",
@@ -219,6 +301,9 @@ export default function SimTradingPage() {
                   <div>
                     <p className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{tr.name}</p>
                     <p className="text-[10px]" style={{ color: "#94A3B8" }}>{tr.createdAt} · {tr.shares}股</p>
+                    {tr.strategy && (
+                      <p className="text-[9px] mt-0.5" style={{ color: "#64748B" }}>📊 {tr.strategy}</p>
+                    )}
                   </div>
                 </div>
                 <div className="text-right">
@@ -268,6 +353,15 @@ export default function SimTradingPage() {
                 </div>
               ) : (
                 <>
+                  {/* 策略来源徽章 */}
+                  {isStrategyOrder && stratFrom && (
+                    <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl"
+                      style={{ background: "rgba(0,229,168,0.06)", border: "1px solid rgba(0,229,168,0.18)" }}>
+                      <span className="text-[11px]" style={{ color: "#00E5A8" }}>📊 策略推荐</span>
+                      <span className="text-[10px] truncate flex-1" style={{ color: "#64748B" }}>{stratFrom}</span>
+                    </div>
+                  )}
+
                   {/* 买卖切换 */}
                   <div className="flex gap-2 mb-4">
                     {(["BUY", "SELL"] as const).map((t) => (
@@ -314,6 +408,10 @@ export default function SimTradingPage() {
                           <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
                             style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                         )}
+                        {isStrategyOrder && !priceEditedRef.current && (
+                          <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>策略建议</span>
+                        )}
                       </div>
                       <input
                         className="bg-transparent text-right font-bold text-[15px] num outline-none w-28"
@@ -333,7 +431,7 @@ export default function SimTradingPage() {
                           style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                           <Minus size={13} color="#94A3B8" />
                         </button>
-                        <span className="font-bold text-[15px] num w-12 text-center" style={{ color: "#F8FAFC" }}>{orderShares}</span>
+                        <span className="font-bold text-[15px] num w-14 text-center" style={{ color: "#F8FAFC" }}>{orderShares}</span>
                         <button onClick={() => setOrderShares((prev) => String(+prev + 100))}
                           className="w-7 h-7 rounded-lg flex items-center justify-center"
                           style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
@@ -341,6 +439,28 @@ export default function SimTradingPage() {
                         </button>
                       </div>
                     </div>
+
+                    {/* 策略止损止盈提示 */}
+                    {isStrategyOrder && stratStopLoss > 0 && tradeType === "BUY" && (
+                      <div className="flex items-center justify-between px-3 py-2.5 rounded-xl"
+                        style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)" }}>
+                        <span className="text-[11px] font-semibold" style={{ color: "#64748B" }}>策略建议</span>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1">
+                            <TrendingDown size={11} color="#EF4444" />
+                            <span className="text-[11px] num font-bold" style={{ color: "#EF4444" }}>
+                              止损 ¥{stratStopLoss.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <TrendingUp size={11} color="#00E5A8" />
+                            <span className="text-[11px] num font-bold" style={{ color: "#00E5A8" }}>
+                              止盈 ¥{stratTakeProfit.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* 预估金额 */}
                     <div className="flex items-center justify-between px-3 py-2">
@@ -363,11 +483,11 @@ export default function SimTradingPage() {
               )}
             </div>
 
-            {/* 确认按钮（固定底部，永远可见） */}
+            {/* 确认按钮（固定底部） */}
             {!orderSuccess && (
               <div className="flex-shrink-0 px-5 pt-3 pb-safe" style={{ borderTop: "1px solid #1a2f50", paddingBottom: "max(2rem, env(safe-area-inset-bottom, 2rem))" }}>
                 <button onClick={handleOrder}
-                  className="w-full py-4 rounded-2xl font-black text-[15px] glow-green"
+                  className="w-full py-4 rounded-2xl font-black text-[15px] glow-green active:opacity-85 transition-opacity"
                   style={{
                     background: tradeType === "BUY"
                       ? "linear-gradient(135deg, #00E5A8, #00b885)"
@@ -403,7 +523,6 @@ export default function SimTradingPage() {
                   <X size={14} color="#94A3B8" />
                 </button>
               </div>
-              {/* 搜索框 */}
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 {searchLoading
@@ -446,7 +565,6 @@ export default function SimTradingPage() {
                       border: `1px solid ${selectedStock.symbol === s.symbol ? "rgba(0,229,168,0.3)" : "#1a2f50"}`,
                     }}
                     onClick={() => selectStock(s)}>
-                    {/* 左：名称 + 代码 */}
                     <div className="flex items-center gap-2.5 text-left">
                       <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[13px] flex-shrink-0"
                         style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
@@ -463,7 +581,6 @@ export default function SimTradingPage() {
                         <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
                       </div>
                     </div>
-                    {/* 右：价格 + 涨跌 */}
                     <div className="text-right flex-shrink-0">
                       <p className="font-bold text-[14px] num" style={{ color: "#F8FAFC" }}>
                         {formatPrice(s.price, s.currency)}
@@ -480,5 +597,19 @@ export default function SimTradingPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Default export with Suspense boundary ────────────────────────
+export default function SimTradingPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ background: "#07111F", minHeight: "100vh" }} className="flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 animate-spin"
+          style={{ borderColor: "#00E5A8", borderTopColor: "transparent" }} />
+      </div>
+    }>
+      <SimTradingContent />
+    </Suspense>
   );
 }

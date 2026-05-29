@@ -33,44 +33,60 @@ function FBar({ label, score }: { label: string; score: number }) {
   );
 }
 
-// Signal card (buy/watch)
+// Signal card (buy/watch/sell)
 function SigCard({ sig }: { sig: StrategySignal }) {
   const c = actColor(sig.action);
+  const orderQuery = sig.action === "buy"
+    ? `symbol=${sig.symbol}&name=${encodeURIComponent(sig.name)}&price=${sig.entryPrice.toFixed(2)}&stopLoss=${sig.stopLossPrice.toFixed(2)}&takeProfit=${sig.takeProfitPrice.toFixed(2)}&pct=${Math.round(sig.suggestedPositionPct * 100)}&from=${encodeURIComponent("A股稳健多因子轮动策略")}`
+    : null;
+
   return (
-    <Link href={`/stock/${sig.symbol}`}>
-      <div className="p-3 rounded-2xl active:opacity-75"
-        style={{ background: "#0d1f3c", border: `1px solid ${c}30` }}>
-        <div className="flex items-start justify-between mb-1.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{sig.name}</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
-              style={{ background: `${c}18`, color: c }}>{actLabel(sig.action)}</span>
-            <span className="text-[9px] px-1 py-0.5 rounded"
-              style={{ background: "rgba(59,130,246,0.10)", color: "#3B82F6" }}>
-              评分{sig.score}
-            </span>
+    <div className="rounded-2xl overflow-hidden" style={{ background: "#0d1f3c", border: `1px solid ${c}30` }}>
+      <Link href={`/stock/${sig.symbol}`}>
+        <div className="p-3 active:opacity-75">
+          <div className="flex items-start justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-[13px]" style={{ color: "#F8FAFC" }}>{sig.name}</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                style={{ background: `${c}18`, color: c }}>{actLabel(sig.action)}</span>
+              <span className="text-[9px] px-1 py-0.5 rounded"
+                style={{ background: "rgba(59,130,246,0.10)", color: "#3B82F6" }}>
+                评分{sig.score}
+              </span>
+            </div>
+            <p className="font-bold text-[13px] num flex-shrink-0 ml-2" style={{ color: "#F8FAFC" }}>
+              ¥{sig.entryPrice.toFixed(2)}
+            </p>
           </div>
-          <p className="font-bold text-[13px] num flex-shrink-0 ml-2" style={{ color: "#F8FAFC" }}>
-            ¥{sig.entryPrice.toFixed(2)}
-          </p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2">
+            <FBar label="趋势" score={sig.trendScore} />
+            <FBar label="动量" score={sig.momentumScore} />
+          </div>
+          {sig.reasons[0] && (
+            <p className="text-[10px] truncate" style={{ color: "#94A3B8" }}>{sig.reasons[0]}</p>
+          )}
+          {sig.warnings[0] && (
+            <p className="text-[10px] mt-0.5" style={{ color: "#FACC15" }}>⚠️ {sig.warnings[0]}</p>
+          )}
+          <div className="flex gap-3 mt-1.5">
+            <span className="text-[9px]" style={{ color: "#EF4444" }}>止损¥{sig.stopLossPrice.toFixed(2)}</span>
+            <span className="text-[9px]" style={{ color: "#00E5A8" }}>止盈¥{sig.takeProfitPrice.toFixed(2)}</span>
+            <span className="text-[9px]" style={{ color: "#64748B" }}>建仓{(sig.suggestedPositionPct * 100).toFixed(0)}%</span>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2">
-          <FBar label="趋势" score={sig.trendScore} />
-          <FBar label="动量" score={sig.momentumScore} />
+      </Link>
+      {/* 策略模拟下单入口（仅买入信号显示） */}
+      {orderQuery && (
+        <div className="px-3 pb-3">
+          <Link href={`/sim-trading?${orderQuery}`}>
+            <div className="w-full py-2 rounded-xl text-center text-[12px] font-bold active:opacity-70"
+              style={{ background: "rgba(0,229,168,0.10)", color: "#00E5A8", border: "1px solid rgba(0,229,168,0.2)" }}>
+              策略模拟下单 →
+            </div>
+          </Link>
         </div>
-        {sig.reasons[0] && (
-          <p className="text-[10px] truncate" style={{ color: "#94A3B8" }}>{sig.reasons[0]}</p>
-        )}
-        {sig.warnings[0] && (
-          <p className="text-[10px] mt-0.5" style={{ color: "#FACC15" }}>⚠️ {sig.warnings[0]}</p>
-        )}
-        <div className="flex gap-3 mt-1.5">
-          <span className="text-[9px]" style={{ color: "#EF4444" }}>止损¥{sig.stopLossPrice.toFixed(2)}</span>
-          <span className="text-[9px]" style={{ color: "#00E5A8" }}>止盈¥{sig.takeProfitPrice.toFixed(2)}</span>
-          <span className="text-[9px]" style={{ color: "#64748B" }}>建仓{(sig.suggestedPositionPct * 100).toFixed(0)}%</span>
-        </div>
-      </div>
-    </Link>
+      )}
+    </div>
   );
 }
 

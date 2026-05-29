@@ -1,5 +1,64 @@
 import { MOCK_SIM_ACCOUNT, MOCK_SIGNALS } from "./mock-data";
-import type { SimAccount, Signal } from "@/types";
+import type { SimAccount, Signal, SimPosition } from "@/types";
+
+// ── Strategy-aware risk types ────────────────────────────────────
+export type StrategyMarketStatus = "强势" | "震荡" | "弱势" | "数据不足";
+
+export interface StrategyRiskExtras {
+  marketStatus: StrategyMarketStatus;
+  marketStatusNote: string;
+  sellSignalSymbols: string[];  // symbols with sell action from multi-factor strategy
+}
+
+/** Build additional risk items derived from strategy signals */
+export function buildStrategyRiskItems(
+  extras: StrategyRiskExtras,
+  positions: SimPosition[]
+): { items: RiskItem[]; additionalScore: number } {
+  const items: RiskItem[] = [];
+  let additionalScore = 0;
+
+  // 1. Market status risk
+  if (extras.marketStatus === "弱势") {
+    additionalScore += 15;
+    items.push({
+      id: "strategy-market-weak",
+      type: "market",
+      level: "高",
+      title: "沪深300处于弱势区间",
+      reason: extras.marketStatusNote,
+      suggestion: "多因子策略建议将总仓位降至20%以下，优先保留现金应对进一步回调",
+    });
+  } else if (extras.marketStatus === "数据不足") {
+    additionalScore += 4;
+    items.push({
+      id: "strategy-market-unknown",
+      type: "market",
+      level: "中等",
+      title: "市场择时数据暂不可用",
+      reason: extras.marketStatusNote,
+      suggestion: "无法判断市场趋势，建议保守操作，不加仓，重点管控风险",
+    });
+  }
+
+  // 2. Held positions with sell signals
+  const sellSet = new Set(extras.sellSignalSymbols);
+  for (const pos of positions) {
+    if (sellSet.has(pos.symbol)) {
+      additionalScore += 8;
+      items.push({
+        id: `strategy-sell-${pos.symbol}`,
+        type: "signal",
+        level: "高",
+        title: `${pos.name} 策略建议减仓/卖出`,
+        reason: `多因子轮动策略综合评分低于卖出阈值，持仓信号转为卖出`,
+        suggestion: "建议参考多因子信号及时减仓，或将止损线上调至买入价保护利润",
+      });
+    }
+  }
+
+  return { items, additionalScore: Math.min(additionalScore, 25) };
+}
 
 // ── Types ────────────────────────────────────────────────────────
 export type RiskPortfolioLevel = "低" | "中等" | "高";
