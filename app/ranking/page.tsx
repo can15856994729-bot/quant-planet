@@ -4,6 +4,7 @@ import Link from "next/link";
 import { TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { pnlColor, formatPct, marketColor, formatMarket } from "@/lib/utils";
+import { useStockQuotes } from "@/lib/useStockQuote";
 
 // ─── 排行榜数据类型 ────────────────────────────────────────────
 interface RankStock {
@@ -134,10 +135,15 @@ function rankStyle(rank: number) {
   return { bg: "#1a2f50", color: "#64748B" };
 }
 
+const ALL_RANK_SYMBOLS = RANK_DATA.map((s) => s.symbol);
+
 export default function RankingPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("涨幅榜");
   const [market, setMarket] = useState<MarketFilter>("全部");
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Fetch live prices for all ranked stocks
+  const { quotes: liveQuotes, refresh: refreshQuotes } = useStockQuotes(ALL_RANK_SYMBOLS);
 
   const tab = TABS.find((t) => t.key === activeTab)!;
 
@@ -158,7 +164,7 @@ export default function RankingPage() {
       <PageHeader
         title="行情排行榜"
         right={
-          <button onClick={() => setRefreshKey((k) => k + 1)}
+          <button onClick={() => { setRefreshKey((k) => k + 1); refreshQuotes(); }}
             className="w-8 h-8 rounded-xl flex items-center justify-center"
             style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
             <RefreshCw size={15} color="#64748B" />
@@ -215,6 +221,9 @@ export default function RankingPage() {
             const rank = i + 1;
             const rs = rankStyle(rank);
             const val = s[tab.sortKey] as number;
+            const liveQ = liveQuotes[s.symbol];
+            const displayPrice = (liveQ?.price && liveQ.price > 0) ? liveQ.price : s.price;
+            const displayChangePct = (liveQ?.isRealtime) ? (liveQ.changePct ?? s.changePct) : s.changePct;
             return (
               <Link key={s.symbol} href={`/stock/${s.symbol}`}>
                 <div className="flex items-center px-4 py-3 active:opacity-70"
@@ -235,15 +244,19 @@ export default function RankingPage() {
                         style={{ background: `${marketColor(s.market)}18`, color: marketColor(s.market) }}>
                         {formatMarket(s.market)}
                       </span>
+                      {liveQ?.isRealtime && (
+                        <span className="text-[9px] px-1 py-0.5 rounded font-bold flex-shrink-0"
+                          style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+                      )}
                     </div>
                     <p className="text-[11px]" style={{ color: "#64748B" }}>{s.symbol} · {s.industry}</p>
                   </div>
 
                   {/* 最新价 + 涨跌幅 */}
                   <div className="w-20 text-right flex-shrink-0">
-                    <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>{s.price.toLocaleString()}</p>
-                    <p className="text-[11px] num font-semibold" style={{ color: pnlColor(s.changePct) }}>
-                      {formatPct(s.changePct)}
+                    <p className="font-bold text-[13px] num" style={{ color: "#F8FAFC" }}>{displayPrice.toLocaleString()}</p>
+                    <p className="text-[11px] num font-semibold" style={{ color: pnlColor(displayChangePct) }}>
+                      {formatPct(displayChangePct)}
                     </p>
                   </div>
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
@@ -8,31 +8,52 @@ import { getStockBySymbol } from "@/lib/stockService";
 import type { StockInfo } from "@/lib/stockService";
 import { formatPrice, formatPct, pnlColor, marketColor, formatMarket, marketToCurrency } from "@/lib/utils";
 import { useStockSearch } from "@/lib/useStockSearch";
+import { useStockQuotes } from "@/lib/useStockQuote";
 
 type Tab = "持仓" | "成交" | "下单";
 
 // Default selected stock
 const DEFAULT_STOCK = getStockBySymbol("600519")!;
 
+// All position symbols + default stock for live quotes
+const POSITION_SYMBOLS = MOCK_SIM_ACCOUNT.positions.map((p) => p.symbol);
+
 export default function SimTradingPage() {
   const [tab, setTab] = useState<Tab>("持仓");
   const [tradeType, setTradeType] = useState<"BUY" | "SELL">("BUY");
   const [showOrder, setShowOrder] = useState(false);
   const [orderShares, setOrderShares] = useState("100");
-  const [orderPrice, setOrderPrice] = useState("1680.50");
+  const [orderPrice, setOrderPrice] = useState(DEFAULT_STOCK.price.toFixed(2));
   const [orderSuccess, setOrderSuccess] = useState(false);
+  // Track whether user has manually edited the price field
+  const priceEditedRef = useRef(false);
 
   // 选股
   const [selectedStock, setSelectedStock] = useState<StockInfo>(DEFAULT_STOCK);
   const [showPicker, setShowPicker] = useState(false);
   const [pickSearch, setPickSearch] = useState("");
 
+  // Real-time quotes for selected stock + all positions
+  const allSymbols = [...new Set([selectedStock.symbol, ...POSITION_SYMBOLS])];
+  const { quotes: liveQuotes } = useStockQuotes(allSymbols);
+
+  // When live quote arrives for selected stock and user hasn't manually edited price, auto-update
+  useEffect(() => {
+    const livePrice = liveQuotes[selectedStock.symbol]?.price;
+    if (livePrice && livePrice > 0 && !priceEditedRef.current) {
+      setOrderPrice(livePrice.toFixed(2));
+    }
+  }, [liveQuotes, selectedStock.symbol]);
+
   // Use the new stock search hook
   const { results: pickerList, loading: searchLoading } = useStockSearch(pickSearch);
 
   function selectStock(s: StockInfo) {
     setSelectedStock(s);
-    setOrderPrice(s.price.toFixed(2));
+    priceEditedRef.current = false; // reset manual edit flag on stock change
+    // Use live price if available, else static
+    const livePrice = liveQuotes[s.symbol]?.price;
+    setOrderPrice((livePrice && livePrice > 0 ? livePrice : s.price).toFixed(2));
     setShowPicker(false);
     setPickSearch("");
   }
@@ -117,7 +138,13 @@ export default function SimTradingPage() {
         {/* 持仓列表 */}
         {tab === "持仓" && (
           <div className="space-y-3">
-            {acc.positions.map((pos) => (
+            {acc.positions.map((pos) => {
+              // Use live price if available, else fall back to mock currentPrice
+              const liveQ = liveQuotes[pos.symbol];
+              const currentPrice = (liveQ?.price && liveQ.price > 0) ? liveQ.price : pos.currentPrice;
+              const livePnl = (currentPrice - pos.costPrice) * pos.shares;
+              const livePnlPct = ((currentPrice - pos.costPrice) / pos.costPrice) * 100;
+              return (
               <div key={pos.symbol} className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2">
@@ -132,24 +159,28 @@ export default function SimTradingPage() {
                           style={{ background: `${marketColor(pos.market)}18`, color: marketColor(pos.market) }}>
                           {formatMarket(pos.market)}
                         </span>
+                        {liveQ?.isRealtime && (
+                          <span className="text-[9px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+                        )}
                       </div>
                       <p className="text-[10px]" style={{ color: "#94A3B8" }}>{pos.symbol}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-[15px] num" style={{ color: pnlColor(pos.pnlPct) }}>
-                      {pos.pnlPct > 0 ? "+" : ""}{pos.pnlPct.toFixed(2)}%
+                    <p className="font-bold text-[15px] num" style={{ color: pnlColor(livePnlPct) }}>
+                      {livePnlPct > 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
                     </p>
-                    <p className="text-[11px] num" style={{ color: pnlColor(pos.pnl) }}>
-                      {pos.pnl > 0 ? "+" : ""}¥{pos.pnl.toLocaleString()}
+                    <p className="text-[11px] num" style={{ color: pnlColor(livePnl) }}>
+                      {livePnl > 0 ? "+" : ""}¥{livePnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: "持仓股数", value: `${pos.shares}股` },
-                    { label: "成本价",   value: formatPrice(pos.costPrice,    marketToCurrency(pos.market)) },
-                    { label: "现价",     value: formatPrice(pos.currentPrice, marketToCurrency(pos.market)) },
+                    { label: "成本价",   value: formatPrice(pos.costPrice,  marketToCurrency(pos.market)) },
+                    { label: "现价",     value: formatPrice(currentPrice,   marketToCurrency(pos.market)) },
                   ].map(({ label, value }) => (
                     <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
                       <p className="font-semibold text-[13px] num" style={{ color: "#F8FAFC" }}>{value}</p>
@@ -166,7 +197,8 @@ export default function SimTradingPage() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -276,12 +308,18 @@ export default function SimTradingPage() {
 
                     {/* 价格 */}
                     <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
-                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托价格</span>
+                      <div>
+                        <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托价格</span>
+                        {liveQuotes[selectedStock.symbol]?.isRealtime && (
+                          <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
+                        )}
+                      </div>
                       <input
                         className="bg-transparent text-right font-bold text-[15px] num outline-none w-28"
                         style={{ color: "#F8FAFC" }}
                         value={orderPrice}
-                        onChange={(e) => setOrderPrice(e.target.value)}
+                        onChange={(e) => { priceEditedRef.current = true; setOrderPrice(e.target.value); }}
                         inputMode="decimal"
                       />
                     </div>
