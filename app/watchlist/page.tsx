@@ -1,16 +1,29 @@
 "use client";
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Search, Star, TrendingUp, TrendingDown, X, Check } from "lucide-react";
-import { MOCK_STOCKS, DEFAULT_WATCHLIST } from "@/lib/mock-data";
+import { Plus, Search, Star, TrendingUp, TrendingDown, X, Check, Loader2 } from "lucide-react";
+import { DEFAULT_WATCHLIST } from "@/lib/mock-data";
+import { ALL_STOCKS, getStockBySymbol } from "@/lib/stockService";
+import type { StockInfo, Market } from "@/lib/stockService";
 import PageHeader from "@/components/layout/PageHeader";
 import { formatPct, formatPrice, pnlColor, marketColor, formatMarket } from "@/lib/utils";
 import { useWatchlistQuotes } from "@/lib/useMarketData";
+import { useStockSearch } from "@/lib/useStockSearch";
 
 type MarketTab = "全部" | "A股" | "港股" | "美股";
-const MARKET_MAP: Record<MarketTab, string | null> = {
+const MARKET_MAP: Record<MarketTab, Market | null> = {
   "全部": null, "A股": "A", "港股": "HK", "美股": "US",
 };
+
+// Build initial watchlist from stockService (falls back to mock-data symbols)
+function buildWatchedStocks(symbols: string[]): StockInfo[] {
+  return symbols.map((sym) => {
+    const s = getStockBySymbol(sym);
+    if (s) return s;
+    // Fallback: create minimal stub if not in stockService
+    return null;
+  }).filter((s): s is StockInfo => s !== null);
+}
 
 export default function WatchlistPage() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
@@ -21,22 +34,18 @@ export default function WatchlistPage() {
   const [search, setSearch]     = useState("");
   const [pickerTab, setPickerTab] = useState<MarketTab>("全部");
 
-  const allWatched = MOCK_STOCKS.filter((s) => watchlist.includes(s.symbol));
+  const allWatched = buildWatchedStocks(watchlist);
   const stocks = activeTab === "全部"
     ? allWatched
     : allWatched.filter((s) => s.market === MARKET_MAP[activeTab]);
+
   const { quotes, realData } = useWatchlistQuotes(allWatched.map((s) => s.symbol));
 
-  // 选股面板：所有股票（含已添加），按市场 tab 过滤 + 搜索
-  const pickerStocks = useMemo(() =>
-    MOCK_STOCKS.filter((s) => {
-      const matchTab = pickerTab === "全部" || s.market === MARKET_MAP[pickerTab];
-      const matchSearch = !search ||
-        s.name.includes(search) ||
-        s.symbol.toLowerCase().includes(search.toLowerCase());
-      return matchTab && matchSearch;
-    }),
-  [pickerTab, search]);
+  // Stock search with debounce
+  const { results: pickerStocks, loading: searchLoading } = useStockSearch(
+    search,
+    MARKET_MAP[pickerTab]
+  );
 
   function toggleStock(symbol: string) {
     setWatchlist((prev) =>
@@ -183,7 +192,7 @@ export default function WatchlistPage() {
                 <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>
                   添加自选股
                   <span className="ml-2 text-[12px] font-normal" style={{ color: "#94A3B8" }}>
-                    已选 {watchlist.length} 只
+                    已选 {watchlist.length} 只 · 共 {pickerStocks.length > 0 ? `${pickerStocks.length}+` : "280+"} 支
                   </span>
                 </p>
                 <button onClick={closeAdd}
@@ -196,7 +205,10 @@ export default function WatchlistPage() {
               {/* 搜索框 */}
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                <Search size={14} color="#94A3B8" />
+                {searchLoading
+                  ? <Loader2 size={14} color="#00E5A8" className="animate-spin" />
+                  : <Search size={14} color="#94A3B8" />
+                }
                 <input
                   autoFocus
                   className="flex-1 bg-transparent text-[14px] outline-none"
@@ -228,9 +240,23 @@ export default function WatchlistPage() {
               </div>
             </div>
 
+            {/* 提示文字 */}
+            {!search && (
+              <div className="px-5 pb-2">
+                <p className="text-[11px]" style={{ color: "#64748B" }}>
+                  热门股票 · 输入名称或代码搜索全部 {pickerTab !== "全部" ? pickerTab : "A股/港股/美股"}
+                </p>
+              </div>
+            )}
+
             {/* 股票列表（可滚动） */}
             <div className="flex-1 overflow-y-auto px-5 pb-8 space-y-2">
-              {pickerStocks.length === 0 ? (
+              {searchLoading && search ? (
+                <div className="text-center py-10">
+                  <Loader2 size={24} color="#00E5A8" className="animate-spin mx-auto mb-2" />
+                  <p className="text-[13px]" style={{ color: "#64748B" }}>搜索中…</p>
+                </div>
+              ) : pickerStocks.length === 0 ? (
                 <div className="text-center py-10">
                   <p className="text-[13px]" style={{ color: "#64748B" }}>未找到相关股票</p>
                 </div>

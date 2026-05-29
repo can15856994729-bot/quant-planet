@@ -1,13 +1,18 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
-import { MOCK_SIM_ACCOUNT, MOCK_STOCKS } from "@/lib/mock-data";
+import { MOCK_SIM_ACCOUNT } from "@/lib/mock-data";
+import { getStockBySymbol } from "@/lib/stockService";
+import type { StockInfo } from "@/lib/stockService";
 import { formatPrice, formatPct, pnlColor, marketColor, formatMarket, marketToCurrency } from "@/lib/utils";
-import type { Stock } from "@/types";
+import { useStockSearch } from "@/lib/useStockSearch";
 
 type Tab = "持仓" | "成交" | "下单";
+
+// Default selected stock
+const DEFAULT_STOCK = getStockBySymbol("600519")!;
 
 export default function SimTradingPage() {
   const [tab, setTab] = useState<Tab>("持仓");
@@ -18,17 +23,14 @@ export default function SimTradingPage() {
   const [orderSuccess, setOrderSuccess] = useState(false);
 
   // 选股
-  const [selectedStock, setSelectedStock] = useState<Stock>(MOCK_STOCKS[0]);
+  const [selectedStock, setSelectedStock] = useState<StockInfo>(DEFAULT_STOCK);
   const [showPicker, setShowPicker] = useState(false);
   const [pickSearch, setPickSearch] = useState("");
 
-  const pickerList = useMemo(() =>
-    MOCK_STOCKS.filter((s) =>
-      s.name.includes(pickSearch) ||
-      s.symbol.toLowerCase().includes(pickSearch.toLowerCase())
-    ), [pickSearch]);
+  // Use the new stock search hook
+  const { results: pickerList, loading: searchLoading } = useStockSearch(pickSearch);
 
-  function selectStock(s: Stock) {
+  function selectStock(s: StockInfo) {
     setSelectedStock(s);
     setOrderPrice(s.price.toFixed(2));
     setShowPicker(false);
@@ -210,7 +212,6 @@ export default function SimTradingPage() {
       {showOrder && (
         <div className="fixed inset-0 z-[100] flex items-end" style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowOrder(false); }}>
-          {/* 弹窗：最高 90vh，内容滚动，确认按钮固定底部 */}
           <div className="w-full max-w-[480px] mx-auto rounded-t-3xl flex flex-col"
             style={{ background: "#0d1f3c", border: "1px solid #1a2f50", maxHeight: "90vh" }}>
 
@@ -354,7 +355,10 @@ export default function SimTradingPage() {
             <div className="flex-shrink-0 px-5 pt-4 pb-3">
               <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#1a2f50" }} />
               <div className="flex items-center justify-between mb-3">
-                <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>选择股票</p>
+                <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>
+                  选择股票
+                  <span className="ml-2 text-[11px] font-normal" style={{ color: "#94A3B8" }}>A股/港股/美股 280+</span>
+                </p>
                 <button onClick={() => { setShowPicker(false); setPickSearch(""); }}
                   className="w-7 h-7 rounded-full flex items-center justify-center"
                   style={{ background: "#1a2f50" }}>
@@ -364,7 +368,10 @@ export default function SimTradingPage() {
               {/* 搜索框 */}
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                <Search size={14} color="#94A3B8" />
+                {searchLoading
+                  ? <Loader2 size={14} color="#00E5A8" className="animate-spin" />
+                  : <Search size={14} color="#94A3B8" />
+                }
                 <input
                   autoFocus
                   className="flex-1 bg-transparent text-[14px] outline-none"
@@ -383,7 +390,12 @@ export default function SimTradingPage() {
 
             {/* 股票列表 */}
             <div className="flex-1 overflow-y-auto px-5 pb-8 space-y-2">
-              {pickerList.length === 0 ? (
+              {searchLoading && pickSearch ? (
+                <div className="text-center py-10">
+                  <Loader2 size={24} color="#00E5A8" className="animate-spin mx-auto mb-2" />
+                  <p className="text-[13px]" style={{ color: "#64748B" }}>搜索中…</p>
+                </div>
+              ) : pickerList.length === 0 ? (
                 <div className="text-center py-10">
                   <p className="text-[13px]" style={{ color: "#64748B" }}>未找到相关股票</p>
                 </div>
@@ -410,7 +422,7 @@ export default function SimTradingPage() {
                             {formatMarket(s.market)}
                           </span>
                         </div>
-                        <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol}</p>
+                        <p className="text-[11px]" style={{ color: "#94A3B8" }}>{s.symbol} · {s.industry}</p>
                       </div>
                     </div>
                     {/* 右：价格 + 涨跌 */}
