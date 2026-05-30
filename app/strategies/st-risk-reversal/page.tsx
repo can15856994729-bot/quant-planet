@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SingleSTBacktest from "./SingleSTBacktest";
+import STAutoScan from "./STAutoScan";
 
 // ── 颜色常量 ──────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -404,7 +405,7 @@ function STStrategyContent() {
   const [showAdvanced,   setShowAdvanced]   = useState(false);
   const [activeTab,      setActiveTab]      = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
   const [showDiag,       setShowDiag]       = useState(false);
-  const [pageMode,       setPageMode]       = useState<"pool" | "single">("pool");
+  const [pageMode,       setPageMode]       = useState<"pool" | "single" | "scan">("pool");
 
   const [running,     setRunning]     = useState(false);
   const [result,      setResult]      = useState<STResult | null>(null);
@@ -624,19 +625,24 @@ function STStrategyContent() {
           </p>
         </div>
 
-        {/* ── 回测模式切换 ─────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-2">
-          {(["pool", "single"] as const).map((m) => {
-            const isActive = pageMode === m;
+        {/* ── 回测模式切换（3 档） ──────────────────────────── */}
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { k: "pool"   as const, icon: "🏦", label: "股票池回测" },
+            { k: "single" as const, icon: "🔍", label: "单只回测" },
+            { k: "scan"   as const, icon: "🤖", label: "自动扫描" },
+          ]).map(({ k, icon, label }) => {
+            const isActive = pageMode === k;
             return (
-              <button key={m} onClick={() => setPageMode(m)}
-                className="py-3 rounded-2xl text-[13px] font-black"
+              <button key={k} onClick={() => setPageMode(k)}
+                className="py-3 rounded-2xl text-[12px] font-black flex flex-col items-center gap-0.5"
                 style={{
                   background: isActive ? "rgba(239,68,68,0.18)" : CARD,
                   border: `2px solid ${isActive ? R : BORDER}`,
                   color: isActive ? R : MID,
                 }}>
-                {m === "pool" ? "🏦 股票池回测" : "🔍 单只股票回测"}
+                <span className="text-[16px]">{icon}</span>
+                <span>{label}</span>
               </button>
             );
           })}
@@ -1104,6 +1110,11 @@ function STStrategyContent() {
         {/* ── 单只股票回测模式 ─────────────────────────────── */}
         {pageMode === "single" && (
           <SingleSTBacktest stStocks={stStocks} tushareOk={tushareOk} />
+        )}
+
+        {/* ── ST 单股自动扫描模式 ──────────────────────────── */}
+        {pageMode === "scan" && (
+          <STAutoScan stStocks={stStocks} tushareOk={tushareOk} />
         )}
 
         {/* ── 底部风险提示 ─────────────────────────────────── */}

@@ -205,73 +205,123 @@ function EquityChartSingle({ equity }: { equity: { date: string; value: number }
   );
 }
 
-// ── 完整交易明细表 ───────────────────────────────────────────────────
-function TradeDetailTable({ trades }: { trades: STSingleTradeRecord[] }) {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? trades : trades.slice(0, 10);
-  if (trades.length === 0) return (
-    <div className="py-6 text-center">
-      <p className="text-[12px] font-bold" style={{ color: Y }}>本次单只股票回测没有产生交易信号</p>
+// ── 交易卡片（移动端友好，可展开） ────────────────────────────────────
+function SingleTradeCard({ t, idx }: { t: STSingleTradeRecord; idx: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const isP = t.pnl >= 0;
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: CARD, border: `1px solid ${isP ? G+"33" : R+"33"}` }}>
+      <button onClick={() => setExpanded(e => !e)} className="w-full text-left p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold mb-1" style={{ color: DIM }}>交易 #{idx+1}</p>
+            <p className="text-[10px]" style={{ color: DIM }}>
+              买 {t.buyDate.slice(0,4)}-{t.buyDate.slice(4,6)}-{t.buyDate.slice(6,8)} &nbsp;
+              ¥{t.buyPrice.toFixed(3)} × {t.buyShares}股
+            </p>
+            <p className="text-[10px]" style={{ color: DIM }}>
+              卖 {t.sellDate.slice(0,4)}-{t.sellDate.slice(4,6)}-{t.sellDate.slice(6,8)} &nbsp;
+              ¥{t.sellPrice.toFixed(3)} × {t.sellShares}股
+            </p>
+            <p className="text-[10px]" style={{ color: DIM }}>持仓 {t.holdDays}天</p>
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span className="text-[13px] font-black" style={{ color: isP ? G : R }}>
+              {isP?"+":""}{fmtMoney(t.pnl)}
+            </span>
+            <span className="text-[10px] font-bold" style={{ color: isP ? G : R }}>
+              {isP?"+":""}{t.pnlPct.toFixed(2)}%
+            </span>
+            <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold"
+              style={{
+                background: `${SELL_REASON_COLOR[t.sellReason]??MID}18`,
+                color: SELL_REASON_COLOR[t.sellReason] ?? MID,
+                border: `1px solid ${SELL_REASON_COLOR[t.sellReason]??MID}44`,
+              }}>
+              {SELL_REASON_LABEL[t.sellReason] ?? t.sellReason}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-end mt-1 gap-1">
+          <span className="text-[9px]" style={{ color: DIM }}>{expanded ? "收起" : "展开详情"}</span>
+          {expanded ? <ChevronUp size={11} color={DIM} /> : <ChevronDown size={11} color={DIM} />}
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 border-t" style={{ borderColor: BORDER }}>
+          <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 mt-2">
+            {[
+              { k: "买入金额", v: `¥${fmtMoney(t.buyAmount)}` },
+              { k: "卖出金额", v: `¥${fmtMoney(t.sellAmount)}` },
+              { k: "手续费",   v: `¥${t.commission.toFixed(2)}` },
+              { k: "印花税",   v: `¥${t.stampDuty.toFixed(2)}` },
+              { k: "滑点成本", v: `¥${t.slippageCost.toFixed(2)}` },
+              { k: "总费用",   v: `¥${(t.commission+t.stampDuty+t.slippageCost).toFixed(2)}` },
+            ].map(({ k, v }) => (
+              <div key={k} className="flex flex-col">
+                <span className="text-[8px]" style={{ color: DIM }}>{k}</span>
+                <span className="text-[9px] font-bold" style={{ color: MID }}>{v}</span>
+              </div>
+            ))}
+          </div>
+          {t.riskEvents && t.riskEvents.length > 0 && (
+            <div className="mt-2 pt-2 border-t" style={{ borderColor: BORDER }}>
+              <p className="text-[9px] font-bold mb-1" style={{ color: Y }}>期间风险事件：</p>
+              {t.riskEvents.map((e, i) => (
+                <p key={i} className="text-[9px]" style={{ color: DIM }}>• {e}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTradeRecord[]; stockName: string; symbol: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? trades : trades.slice(0, 8);
+
+  if (!trades || trades.length === 0) return (
+    <div className="py-8 text-center">
+      <p className="text-[12px] font-bold" style={{ color: Y }}>本次单只股票回测没有产生交易</p>
+      <p className="text-[10px] mt-1" style={{ color: DIM }}>可尝试切换为激进/调试模式，或延长回测时间</p>
+    </div>
+  );
+
+  const totalFee = trades.reduce((a,t) => a+t.commission+t.stampDuty+t.slippageCost, 0);
+  const totalPnl = trades.reduce((a,t) => a+t.pnl, 0);
+
   return (
-    <div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[9px]" style={{ borderCollapse: "separate", borderSpacing: "0 3px" }}>
-          <thead>
-            <tr>
-              {["买入日","买价","卖出日","卖价","持天","盈亏","原因"].map(h => (
-                <th key={h} className="px-1.5 py-1 text-left font-bold" style={{ color: DIM }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((t, i) => (
-              <tr key={i} style={{ background: CARD }}>
-                <td className="px-1.5 py-1.5 rounded-l-lg" style={{ color: MID }}>{t.buyDate.slice(2,4)}/{t.buyDate.slice(4,6)}</td>
-                <td className="px-1.5 py-1.5 num" style={{ color: "#F8FAFC" }}>{t.buyPrice.toFixed(2)}</td>
-                <td className="px-1.5 py-1.5" style={{ color: MID }}>{t.sellDate.slice(2,4)}/{t.sellDate.slice(4,6)}</td>
-                <td className="px-1.5 py-1.5 num" style={{ color: "#F8FAFC" }}>{t.sellPrice.toFixed(2)}</td>
-                <td className="px-1.5 py-1.5 num" style={{ color: MID }}>{t.holdDays}天</td>
-                <td className="px-1.5 py-1.5 num font-bold" style={{ color: t.pnl > 0 ? G : R }}>
-                  {t.pnl > 0 ? "+" : ""}{fmtMoney(t.pnl)}
-                </td>
-                <td className="px-1.5 py-1.5 rounded-r-lg">
-                  <span className="px-1 py-0.5 rounded text-[8px] font-bold"
-                    style={{
-                      background: `${SELL_REASON_COLOR[t.sellReason] ?? MID}18`,
-                      color: SELL_REASON_COLOR[t.sellReason] ?? MID,
-                    }}>
-                    {SELL_REASON_LABEL[t.sellReason] ?? t.sellReason}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-2">
+      {/* 摘要行 */}
+      <div className="px-3 py-2 rounded-xl flex flex-wrap gap-x-4 gap-y-1"
+        style={{ background: "#0a1628", border: `1px solid ${BORDER}` }}>
+        {[
+          { k: "共交易",   v: `${trades.length}次`,            c: MID },
+          { k: "总盈亏",   v: `${totalPnl>=0?"+":""}¥${fmtMoney(totalPnl)}`, c: totalPnl>=0?G:R },
+          { k: "总费用",   v: `¥${fmtMoney(totalFee)}`,        c: MID },
+          { k: "平均持仓", v: `${(trades.reduce((a,t)=>a+t.holdDays,0)/trades.length).toFixed(1)}天`, c: MID },
+        ].map(({ k, v, c }) => (
+          <span key={k} className="text-[10px]">
+            <span style={{ color: DIM }}>{k}：</span>
+            <span className="font-bold" style={{ color: c }}>{v}</span>
+          </span>
+        ))}
       </div>
-      {trades.length > 10 && (
-        <button onClick={() => setShowAll(!showAll)}
-          className="w-full mt-2 py-2 rounded-xl text-[10px] font-bold"
+      {/* 卡片列表 */}
+      {shown.map((t, i) => <SingleTradeCard key={t.tradeId ?? i} t={t} idx={i} />)}
+      {trades.length > 8 && (
+        <button onClick={() => setShowAll(s => !s)}
+          className="w-full py-2.5 rounded-xl text-[11px] font-bold"
           style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>
           {showAll ? "收起" : `查看全部 ${trades.length} 笔交易`}
         </button>
       )}
-      {/* 费用汇总 */}
-      <div className="mt-2 px-3 py-2 rounded-xl flex flex-wrap gap-x-4 gap-y-1"
-        style={{ background: "#0a1628" }}>
-        {[
-          { k: "总手续费", v: `¥${fmtMoney(trades.reduce((a,t)=>a+t.commission,0))}` },
-          { k: "总印花税", v: `¥${fmtMoney(trades.reduce((a,t)=>a+t.stampDuty,0))}` },
-          { k: "总滑点成本", v: `¥${fmtMoney(trades.reduce((a,t)=>a+t.slippageCost,0))}` },
-          { k: "平均持仓", v: `${(trades.reduce((a,t)=>a+t.holdDays,0)/trades.length).toFixed(1)}天` },
-        ].map(({ k, v }) => (
-          <span key={k} className="text-[9px]">
-            <span style={{ color: DIM }}>{k}：</span>
-            <span className="font-bold" style={{ color: MID }}>{v}</span>
-          </span>
-        ))}
-      </div>
+      <p className="text-[9px] px-1" style={{ color: DIM }}>
+        股票：{stockName}（{symbol}）· 点击每笔交易可展开手续费/印花税/滑点明细
+      </p>
     </div>
   );
 }
@@ -840,16 +890,19 @@ export default function SingleSTBacktest({ stStocks, tushareOk }: Props) {
 
           {/* Tab 切换 */}
           <div className="p-3 rounded-2xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-            <div className="flex gap-1 mb-3 overflow-x-auto">
+            {/* flex-wrap 避免 overflow-x-auto 拦截移动端触摸事件 */}
+            <div className="flex flex-wrap gap-1 mb-3">
               {([
                 { k: "kline"  as const, label: "K线信号" },
                 { k: "equity" as const, label: "资金曲线" },
-                { k: "trades" as const, label: `交易(${result.trades.length})` },
-                { k: "risk"   as const, label: `风险(${result.riskEvents.length})` },
+                { k: "trades" as const, label: `交易(${result.trades?.length ?? 0})` },
+                { k: "risk"   as const, label: `风险(${result.riskEvents?.length ?? 0})` },
                 { k: "diag"   as const, label: "诊断" },
               ]).map(({ k, label }) => (
-                <button key={k} onClick={() => setActiveTab(k)}
-                  className="flex-shrink-0 px-2 py-1.5 rounded-xl text-[10px] font-bold"
+                <button
+                  key={k}
+                  onClick={() => setActiveTab(k)}
+                  className="px-3 py-1.5 rounded-xl text-[10px] font-bold"
                   style={{
                     background: activeTab === k ? "rgba(239,68,68,0.15)" : "#0a1628",
                     border: `1px solid ${activeTab === k ? R : BORDER}`,
@@ -859,16 +912,22 @@ export default function SingleSTBacktest({ stStocks, tushareOk }: Props) {
             </div>
 
             {activeTab === "kline" && (
-              result.klineSignals.length > 5
+              (result.klineSignals?.length ?? 0) > 5
                 ? <KlineSignalChart klines={result.klineSignals} />
                 : <p className="text-[11px] py-6 text-center" style={{ color: DIM }}>K线数据不足</p>
             )}
 
-            {activeTab === "equity" && <EquityChartSingle equity={result.equity} />}
+            {activeTab === "equity" && <EquityChartSingle equity={result.equity ?? []} />}
 
-            {activeTab === "trades" && <TradeDetailTable trades={result.trades} />}
+            {activeTab === "trades" && (
+              <TradeDetailCards
+                trades={result.trades ?? []}
+                stockName={selected?.name ?? ""}
+                symbol={selected?.symbol ?? ""}
+              />
+            )}
 
-            {activeTab === "risk" && <RiskEventList events={result.riskEvents} />}
+            {activeTab === "risk" && <RiskEventList events={result.riskEvents ?? []} />}
 
             {activeTab === "diag" && (
               <div className="space-y-2">
