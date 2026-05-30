@@ -33,6 +33,24 @@ function _setCached(key: string, data: TushareRecord[], ttlMs: number): void {
   _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
 
+/**
+ * 清除全部内存缓存（用于权限变更后强制重新检测）。
+ * 在同一 Vercel warm 实例内，缓存会保留旧的 permission_denied 结果；
+ * 购买积分后调用此函数可立即清除旧缓存。
+ */
+export function clearTushareCache(): void {
+  _cache.clear();
+}
+
+/**
+ * 清除指定接口的缓存条目（精确清除，不影响其他接口）。
+ */
+export function clearTushareCacheFor(apiName: string): void {
+  for (const key of _cache.keys()) {
+    if (key.startsWith(`${apiName}::`)) _cache.delete(key);
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 export type TushareRecord = Record<string, string | number | null>;
 
