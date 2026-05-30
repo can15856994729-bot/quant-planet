@@ -1,175 +1,97 @@
 /**
  * GET /api/tushare/st-pool
  *
- * 返回当前 A股 ST / *ST 股票池（来自 Tushare stock_basic），
- * 附加 East Money 实时行情快速过滤低流动性股票。
+ * 返回当前 A 股全市场 ST / *ST 候选股票池。
+ * 数据来源：Tushare stock_basic（在市股票基础信息）
  *
- * 过滤规则：
- *   - 名称含 ST / *ST / S*ST / SST
- *   - 排除名称含"退市整理"
- *   - 排除上市不足 90 天的新 ST
- *   - 排除近期成交额为 0（停牌）
- *
- * ⚠️ ST 股票存在退市、停牌、连续跌停、流动性枯竭风险，
- *    本接口仅供研究和模拟交易使用，不构成投资建议。
+ * 过滤步骤（逐步输出数量，便于前端诊断）：
+ *   原始 A 股（list_status=L） → ST 名称识别 → 排除退市整理 → 排除新上市
  */
-import { NextResponse }              from "next/server";
-import { getAStockBasic, hasTushareToken, daysAgoStr } from "@/lib/tushareService";
+import { NextResponse } from "next/server";
+import { getAStockBasic, hasTushareToken, tsCodeToSymbol } from "@/lib/tushareService";
 
 export const dynamic = "force-dynamic";
 
-export interface STStockItem {
-  tsCode:    string;   // "000999.SZ"
-  symbol:    string;   // "000999"
-  name:      string;   // "*ST 康美"
-  industry:  string;
-  market:    string;
-  exchange:  string;
-  listDate:  string;
-  stType:    "ST" | "*ST" | "SST" | "S*ST" | "其他ST";
-  // 行情（来自东方财富，可能为空）
-  price?:      number;
-  changePct?:  number;
-  amount?:     number;   // 今日成交额（元）
-  turnoverRate?: number;
+// ST 名称识别：兼容半角/全角字符，匹配 ST/*ST/SST/S*ST 等所有前缀模式
+function detectSTName(name: string): boolean {
+  if (!name) return false;
+  const n = name
+    .trim()
+    .replace(/ＳＴ/g, "ST")
+    .replace(/＊ＳＴ/g, "*ST")
+    .replace(/Ｓ/g, "S")
+    .replace(/Ｔ/g, "T")
+    .replace(/＊/g, "*");
+  return /^(\*|S\*|SS)?ST/i.test(n);
 }
 
-function detectSTType(name: string): STStockItem["stType"] | null {
-  if (name.includes("S*ST")) return "S*ST";
-  if (name.includes("SST"))  return "SST";
-  if (name.includes("*ST"))  return "*ST";
-  if (name.includes("ST"))   return "ST";
-  return null;
-}
-
-async function fetchEMQuotes(
-  items: { symbol: string; exchange: string }[],
-): Promise<Map<string, { price: number; changePct: number; amount: number; turnoverRate: number }>> {
-  const result = new Map<string, { price: number; changePct: number; amount: number; turnoverRate: number }>();
-  if (items.length === 0) return result;
-
-  // East Money secid prefix: SSE=1, SZSE=0, BSE=0
-  const secids = items.map((s) => {
-    const prefix = s.exchange === "SSE" ? "1" : "0";
-    return `${prefix}.${s.symbol}`;
-  }).join(",");
-
-  try {
-    const url =
-      `https://push2.eastmoney.com/api/qt/ulist.np/get` +
-      `?secids=${secids}&fields=f2,f3,f6,f8,f12,f13`;
-    const res  = await fetch(url, {
-      headers: { Referer: "https://finance.eastmoney.com/" },
-      signal:  AbortSignal.timeout(8000),
-      next:    { revalidate: 120 },
-    });
-    const json = await res.json();
-    const diff = (json?.data?.diff ?? []) as Record<string, number | string>[];
-
-    for (const item of diff) {
-      const sym    = String(item.f12 ?? "");
-      const mktNum = Number(item.f13 ?? 0);
-      const div    = mktNum === 116 ? 1000 : 100;
-      const price  = Number(item.f2) / div;
-      if (price > 0) {
-        result.set(sym, {
-          price,
-          changePct: Number(item.f3) / 100,
-          amount:    Number(item.f6),         // 成交额（元）
-          turnoverRate: Number(item.f8) / 100,
-        });
-      }
-    }
-  } catch {
-    // 行情获取失败，继续返回基础列表
-  }
-  return result;
+function getSTType(name: string): string {
+  const n = name
+    .trim()
+    .replace(/ＳＴ/g, "ST")
+    .replace(/＊ＳＴ/g, "*ST")
+    .replace(/Ｓ/g, "S")
+    .replace(/Ｔ/g, "T")
+    .replace(/＊/g, "*");
+  if (/^\*ST/i.test(n) || /^S\*ST/i.test(n)) return "*ST";
+  if (/^SST/i.test(n)) return "SST";
+  return "ST";
 }
 
 export async function GET() {
   if (!hasTushareToken()) {
-    return NextResponse.json(
-      { ok: false, error: "TUSHARE_TOKEN 未配置，无法获取 ST 股票池", tokenMissing: true, stocks: [] },
-      { status: 200 },
-    );
-  }
-
-  // 1. 获取全量上市股票
-  const basicResult = await getAStockBasic("L");
-  if (!basicResult.ok) {
-    return NextResponse.json(
-      { ok: false, error: basicResult.error, stocks: [] },
-      { status: 200 },
-    );
-  }
-
-  // 2. 过滤出 ST 股票
-  const cutoff = daysAgoStr(90); // 排除上市不足 90 天的新 ST
-  const stStocks: STStockItem[] = [];
-
-  for (const s of basicResult.records) {
-    const name     = String(s.name      ?? "");
-    const listDate = String(s.list_date ?? "19000101");
-    const tsCode   = String(s.ts_code   ?? "");
-    const symbol   = String(s.symbol    ?? "");
-    const exchange = String(s.exchange  ?? "");
-
-    const stType = detectSTType(name);
-    if (!stType) continue;                      // 不是 ST
-    if (name.includes("退市整理")) continue;    // 排除退市整理期
-    if (listDate > cutoff) continue;            // 排除新 ST（上市不足 90 天）
-    if (!symbol || !tsCode) continue;
-
-    stStocks.push({
-      tsCode, symbol, name, stType,
-      industry: String(s.industry ?? ""),
-      market:   String(s.market   ?? ""),
-      exchange,
-      listDate,
+    return NextResponse.json({
+      ok: false,
+      error: "TUSHARE_TOKEN 未配置，无法获取 ST 股票池",
+      stocks: [], totalMarket: 0, stNameCount: 0, afterDelistFilter: 0, stCount: 0,
     });
   }
 
-  // 3. 从东方财富批量获取行情（分批，每批最多 200 只）
-  const BATCH = 200;
-  const quotes = new Map<string, { price: number; changePct: number; amount: number; turnoverRate: number }>();
-  for (let i = 0; i < stStocks.length; i += BATCH) {
-    const batch = stStocks.slice(i, i + BATCH);
-    const batchQuotes = await fetchEMQuotes(batch.map((s) => ({ symbol: s.symbol, exchange: s.exchange })));
-    for (const [k, v] of batchQuotes) quotes.set(k, v);
+  const result = await getAStockBasic("L");
+  if (!result.ok) {
+    return NextResponse.json({
+      ok: false,
+      error: `stock_basic 接口失败：${result.error}`,
+      stocks: [], totalMarket: 0, stNameCount: 0, afterDelistFilter: 0, stCount: 0,
+    });
   }
 
-  // 4. 附加行情数据，过滤停牌股票
-  const enriched: STStockItem[] = [];
-  const MIN_AMOUNT = 1_000_000; // 至少 100 万成交额才视为非停牌（有交易）
+  const totalMarket = result.records.length;
 
-  for (const stock of stStocks) {
-    const q = quotes.get(stock.symbol);
-    const item: STStockItem = { ...stock };
-    if (q) {
-      item.price       = q.price;
-      item.changePct   = q.changePct;
-      item.amount      = q.amount;
-      item.turnoverRate = q.turnoverRate;
-      // 过滤：明确停牌（成交额=0）
-      if (q.amount === 0) continue;
-    }
-    enriched.push(item);
-  }
+  // 90 天前（YYYYMMDD），排除新上市股票
+  const d90 = new Date();
+  d90.setDate(d90.getDate() - 90);
+  const cutoff90 = d90.toISOString().slice(0, 10).replace(/-/g, "");
 
-  // 5. 按成交额降序排列（流动性好的在前）
-  enriched.sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
+  const step1 = result.records.filter((s) => detectSTName(String(s.name ?? "")));
+  const step2 = step1.filter((s) => !String(s.name ?? "").includes("退"));
+  const step3 = step2.filter((s) => String(s.list_date ?? "19000101") <= cutoff90);
 
-  return NextResponse.json(
-    {
-      ok:        true,
-      total:     enriched.length,
-      stocks:    enriched,
-      source:    "tushare+eastmoney",
-      updatedAt: new Date().toISOString(),
-      note:      "ST股票存在退市、停牌、连续跌停、流动性枯竭风险，本数据仅供研究，不构成投资建议",
-    },
-    {
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" },
-    },
-  );
+  const stocks = step3.map((s) => {
+    const name   = String(s.name   ?? "");
+    const tsCode = String(s.ts_code ?? "");
+    return {
+      tsCode,
+      symbol:   tsCodeToSymbol(tsCode),
+      name,
+      industry: String(s.industry ?? ""),
+      stType:   getSTType(name),
+      listDate: String(s.list_date ?? ""),
+      exchange: String(s.exchange  ?? ""),
+    };
+  });
+
+  return NextResponse.json({
+    ok: true,
+    stocks,
+    totalMarket,
+    stNameCount:       step1.length,
+    afterDelistFilter: step2.length,
+    stCount:           stocks.length,
+    note:
+      `A股全市场：${totalMarket} → ` +
+      `ST识别：${step1.length} → ` +
+      `排除退市整理：${step2.length} → ` +
+      `排除新上市：${stocks.length} 只（最终候选）`,
+  });
 }
