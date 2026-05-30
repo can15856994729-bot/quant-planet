@@ -460,6 +460,26 @@ export const MOCK_STRATEGIES: Strategy[] = [
     tags: ["多因子", "量化选股", "分散化"],
   },
   {
+    id: "st-risk-reversal",
+    name: "A股 ST 风险反转策略",
+    description: "专注于 A股 ST / *ST 股票的困境反转机会。筛选存在摘帽预期、流动性尚可、趋势开始修复的 ST 标的。⚠️ 极高风险：存在退市、停牌、连续跌停、流动性枯竭风险，仅供研究和模拟交易，不构成投资建议。",
+    marketCondition: "全市场",
+    annualReturn: 0,    // 参考值不适用，需真实回测
+    maxDrawdown:  0,    // 参考值不适用，需真实回测
+    winRate:   0,
+    tradeCount: 0,
+    riskLevel: "高",
+    indicators: ["MA5", "MA20", "摘帽预期", "流动性", "连续跌停检测", "退市风险"],
+    markets: ["A"],
+    params: [
+      { key: "scoreThreshold",  label: "买入评分阈值", defaultValue: 60, min: 50, max: 80, step: 5,   unit: "分" },
+      { key: "maxPositions",    label: "最大持股数",   defaultValue: 5,  min: 1,  max: 5,  step: 1,   unit: "只" },
+      { key: "maxSingleWeight", label: "单股最大仓位", defaultValue: 3,  min: 1,  max: 5,  step: 0.5, unit: "%" },
+      { key: "stopLoss",        label: "止损线",       defaultValue: 6,  min: 3,  max: 15, step: 1,   unit: "%" },
+    ],
+    tags: ["ST专题", "风险反转", "困境反转", "摘帽预期", "事件驱动", "高风险"],
+  },
+  {
     id: "a-share-multi-factor",
     name: "A股稳健多因子轮动策略",
     description: "通过趋势、动量、质量、估值、资金、风险六类因子综合打分，筛选A股中长期强势标的，动态控制仓位。追求长期稳健收益，控制回撤，不承诺盈利。",

@@ -1,0 +1,835 @@
+"use client";
+/**
+ * A股 ST 风险反转策略 — 策略详情页
+ *
+ * ⚠️ 极高风险说明：
+ *   ST 股票存在退市、停牌、连续跌停、流动性枯竭、信息披露风险。
+ *   本页面仅用于研究和模拟交易，不构成任何投资建议，不保证盈利。
+ */
+import { useState, useEffect, useMemo, Suspense } from "react";
+import Link from "next/link";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+} from "recharts";
+import {
+  AlertTriangle, ShieldAlert, TrendingUp, TrendingDown, BarChart3,
+  Play, RefreshCw, ChevronDown, ChevronUp, Activity, ArrowRight,
+  Layers, Users,
+} from "lucide-react";
+import PageHeader from "@/components/layout/PageHeader";
+
+// ── 颜色常量 ──────────────────────────────────────────────────────
+const R   = "#EF4444";
+const G   = "#00E5A8";
+const Y   = "#FACC15";
+const B   = "#3B82F6";
+const DIM = "#64748B";
+const MID = "#94A3B8";
+const CARD   = "#0d1f3c";
+const BORDER = "#1a2f50";
+const DANGER = "#7f1d1d";  // dark red bg
+
+// ── 类型 ──────────────────────────────────────────────────────────
+interface STStock {
+  tsCode: string; symbol: string; name: string; industry: string;
+  stType: string; listDate: string; exchange: string;
+  price?: number; changePct?: number; amount?: number;
+}
+
+interface STTrade {
+  date: string; tsCode: string; name: string; action: "BUY" | "SELL";
+  reason: string; price: number; shares: number; amount: number; fee: number; pnl: number;
+}
+
+interface RiskEvent {
+  date: string; tsCode: string; name: string;
+  type: string; note: string;
+}
+
+interface STResult {
+  ok: true;
+  totalReturn: number; annualReturn: number; maxDrawdown: number;
+  sharpeRatio: number; winRate: number; profitFactor: number;
+  totalTrades: number; maxConsecutiveLosses: number;
+  totalFees: number; feeImpact: number; strategyScore: number;
+  equity: { date: string; value: number }[];
+  drawdown: { date: string; dd: number }[];
+  trades: STTrade[];
+  limitDownStuckCount: number; suspendedDayImpact: number;
+  riskEvents: RiskEvent[]; poolSize: number;
+  source: string; note: string;
+  initialCapital: number; finalCapital: number;
+}
+
+// ── 辅助函数 ──────────────────────────────────────────────────────
+function fmtMoney(n: number) {
+  if (Math.abs(n) >= 1e8) return `${(n/1e8).toFixed(1)}亿`;
+  if (Math.abs(n) >= 1e4) return `${(n/1e4).toFixed(0)}万`;
+  return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+}
+
+function ymdToInput(ymd: string) { return `${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}`; }
+function inputToYmd(s: string) { return s.replace(/-/g, ""); }
+function todayYMD() { return new Date().toISOString().slice(0,10).replace(/-/g,""); }
+function yearsAgoYMD(n: number) {
+  const d = new Date(); d.setFullYear(d.getFullYear() - n);
+  return d.toISOString().slice(0,10).replace(/-/g,"");
+}
+function fmtDateShort(d: string) { return `${d.slice(2,4)}/${d.slice(4,6)}`; }
+
+function downsample<T>(arr: T[], max = 120): T[] {
+  if (arr.length <= max) return arr;
+  const step = Math.ceil(arr.length / max);
+  return arr.filter((_, i) => i % step === 0 || i === arr.length - 1);
+}
+
+// ── 风险警告横幅 ──────────────────────────────────────────────────
+function RiskBanner() {
+  return (
+    <div className="p-3 rounded-2xl"
+      style={{ background: "rgba(127,29,29,0.5)", border: `2px solid ${R}` }}>
+      <div className="flex items-start gap-2 mb-2">
+        <ShieldAlert size={16} color={R} className="flex-shrink-0 mt-0.5" />
+        <p className="font-black text-[13px]" style={{ color: R }}>⚠️ 极高风险策略 — 务必阅读</p>
+      </div>
+      <ul className="space-y-1 ml-4">
+        {[
+          "ST 股票存在终止上市（退市）风险，可能血本无归",
+          "连续跌停时可能无法卖出，被迫持仓承受极端亏损",
+          "长期停牌可能导致资金被锁定数月甚至更长",
+          "信息披露风险：财务造假、立案调查可能引发暴跌",
+          "本策略仅用于研究和模拟交易，不构成投资建议",
+          "不保证盈利，历史回测不代表未来收益",
+        ].map((t) => (
+          <li key={t} className="text-[10px] leading-[1.6] list-disc" style={{ color: "#FCA5A5" }}>{t}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── ST 股票卡片 ──────────────────────────────────────────────────
+function STCard({ s }: { s: STStock }) {
+  const isUp   = (s.changePct ?? 0) > 0;
+  const isDown = (s.changePct ?? 0) < 0;
+  return (
+    <Link href={`/stock/${s.symbol}`}>
+      <div className="p-3 rounded-xl active:opacity-75"
+        style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="font-bold text-[12px]" style={{ color: "#F8FAFC" }}>{s.name}</span>
+              <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                style={{ background: "rgba(239,68,68,0.15)", color: R }}>
+                {s.stType}
+              </span>
+            </div>
+            <p className="text-[10px]" style={{ color: DIM }}>
+              {s.symbol} · {s.industry || "—"}
+            </p>
+          </div>
+          <div className="text-right">
+            {s.price !== undefined ? (
+              <>
+                <p className="font-black text-[15px] num" style={{ color: "#F8FAFC" }}>
+                  ¥{s.price.toFixed(2)}
+                </p>
+                <div className="flex items-center justify-end gap-0.5 mt-0.5">
+                  {isUp   ? <TrendingUp  size={10} color={R} /> : null}
+                  {isDown ? <TrendingDown size={10} color={G} /> : null}
+                  <span className="text-[11px] font-bold num"
+                    style={{ color: isUp ? R : isDown ? G : MID }}>
+                    {(s.changePct ?? 0) >= 0 ? "+" : ""}{(s.changePct ?? 0).toFixed(2)}%
+                  </span>
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px]" style={{ color: DIM }}>价格加载中…</p>
+            )}
+            {s.amount !== undefined && s.amount > 0 && (
+              <p className="text-[9px] mt-0.5" style={{ color: DIM }}>
+                成交 {fmtMoney(s.amount)}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+// ── 资金曲线图 ────────────────────────────────────────────────────
+function EquityChart({ equity }: { equity: { date: string; value: number }[] }) {
+  const data = useMemo(() => downsample(equity).map((e) => ({
+    d: fmtDateShort(e.date), v: e.value,
+  })), [equity]);
+  const min = Math.min(...data.map((d) => d.v));
+  const max = Math.max(...data.map((d) => d.v));
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <defs>
+          <linearGradient id="st-eq" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor={R} stopOpacity={0.25} />
+            <stop offset="95%" stopColor={R} stopOpacity={0}    />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+        <XAxis dataKey="d" tick={{ fill: DIM, fontSize: 9 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+        <YAxis domain={[min * 0.98, max * 1.01]} tick={{ fill: DIM, fontSize: 9 }} tickLine={false} axisLine={false}
+          tickFormatter={(v) => fmtMoney(v)} />
+        <Tooltip contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 11 }}
+          formatter={(v) => [`¥${Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 0 })}`, "资金"]}
+          labelStyle={{ color: MID }} itemStyle={{ color: R }} />
+        <Area type="monotone" dataKey="v" stroke={R} strokeWidth={1.5} fill="url(#st-eq)" dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── 回撤曲线图 ────────────────────────────────────────────────────
+function DrawdownChart({ drawdown }: { drawdown: { date: string; dd: number }[] }) {
+  const data = useMemo(() => downsample(drawdown).map((e) => ({ d: fmtDateShort(e.date), dd: e.dd })), [drawdown]);
+  const minDD = Math.min(...data.map((d) => d.dd));
+  return (
+    <ResponsiveContainer width="100%" height={130}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <defs>
+          <linearGradient id="st-dd" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor={R} stopOpacity={0.35} />
+            <stop offset="95%" stopColor={R} stopOpacity={0.05} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+        <XAxis dataKey="d" tick={{ fill: DIM, fontSize: 9 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+        <YAxis domain={[minDD * 1.1, 2]} tick={{ fill: DIM, fontSize: 9 }} tickLine={false} axisLine={false}
+          tickFormatter={(v) => `${v.toFixed(0)}%`} />
+        <ReferenceLine y={0} stroke={BORDER} strokeDasharray="3 3" />
+        <Tooltip contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 11 }}
+          formatter={(v) => [`${Number(v).toFixed(2)}%`, "回撤"]}
+          labelStyle={{ color: MID }} itemStyle={{ color: R }} />
+        <Area type="monotone" dataKey="dd" stroke={R} strokeWidth={1.5} fill="url(#st-dd)" dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── 主页面 ────────────────────────────────────────────────────────
+function STStrategyContent() {
+  // ── ST 股票池 state ─────────────────────────────────────────
+  const [stStocks,        setSTStocks]        = useState<STStock[]>([]);
+  const [poolLoading,     setPoolLoading]     = useState(true);
+  const [poolError,       setPoolError]       = useState<string | null>(null);
+  const [showAllPool,     setShowAllPool]     = useState(false);
+
+  // ── 回测 state ──────────────────────────────────────────────
+  const [tushareOk,       setTushareOk]       = useState<boolean | null>(null);
+  const [dateRange,       setDateRange]       = useState<"近1年"|"近2年"|"近3年">("近1年");
+  const [capital,         setCapital]         = useState(100000);
+  const [scoreThreshold,  setScoreThreshold]  = useState(60);
+  const [maxPositions,    setMaxPositions]    = useState(5);
+  const [maxSingleWT,     setMaxSingleWT]     = useState(0.03);
+  const [maxTotalWT,      setMaxTotalWT]      = useState(0.15);
+  const [stopLoss,        setStopLoss]        = useState(0.06);
+  const [rebalanceFreq,   setRebalanceFreq]   = useState<"weekly"|"monthly">("weekly");
+  const [showAdvanced,    setShowAdvanced]    = useState(false);
+  const [activeTab,       setActiveTab]       = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
+
+  const [running,     setRunning]     = useState(false);
+  const [result,      setResult]      = useState<STResult | null>(null);
+  const [resultError, setResultError] = useState<string | null>(null);
+
+  // ── 初始化 ───────────────────────────────────────────────────
+  useEffect(() => {
+    fetch("/api/tushare/status")
+      .then((r) => r.json())
+      .then((d) => setTushareOk(d.capabilities?.daily?.status === "ok"))
+      .catch(() => setTushareOk(false));
+  }, []);
+
+  useEffect(() => {
+    setPoolLoading(true);
+    fetch("/api/tushare/st-pool")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) { setSTStocks(d.stocks ?? []); setPoolError(null); }
+        else { setPoolError(d.error ?? "加载失败"); }
+        setPoolLoading(false);
+      })
+      .catch((e) => { setPoolError(String(e)); setPoolLoading(false); });
+  }, []);
+
+  // ── 回测 ────────────────────────────────────────────────────
+  const startDate = useMemo(() => {
+    const n = dateRange === "近1年" ? 1 : dateRange === "近2年" ? 2 : 3;
+    return yearsAgoYMD(n);
+  }, [dateRange]);
+
+  async function handleRun() {
+    if (!tushareOk) return;
+    setRunning(true); setResult(null); setResultError(null);
+    try {
+      const res = await fetch("/api/tushare/st-backtest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate, endDate: todayYMD(),
+          initialCapital: capital,
+          maxPositions, maxSingleWeight: maxSingleWT,
+          maxTotalSTWeight: maxTotalWT,
+          stopLossRate: stopLoss, rebalanceFreq,
+          scoreThreshold,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) setResult(data as STResult);
+      else setResultError(data.error ?? "回测失败");
+    } catch (e) { setResultError(String(e)); }
+    setRunning(false);
+  }
+
+  const displayedPool = showAllPool ? stStocks : stStocks.slice(0, 10);
+  const canRun = tushareOk === true && !running;
+
+  return (
+    <div style={{ background: "#07111F", minHeight: "100vh" }}>
+      <PageHeader title="ST 风险反转策略" />
+
+      <div className="px-4 pt-4 space-y-4 pb-24">
+
+        {/* ── 风险警告 ──────────────────────────────────────── */}
+        <RiskBanner />
+
+        {/* ── 策略概要 ──────────────────────────────────────── */}
+        <div className="p-4 rounded-2xl space-y-3" style={{ background: CARD, border: `1px solid ${R}33` }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>A股 ST 风险反转策略</p>
+              <p className="text-[10px] mt-0.5" style={{ color: DIM }}>仅 A股 ST / *ST · 事件驱动 · 困境反转</p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                style={{ background: "rgba(239,68,68,0.15)", color: R, border: "1px solid rgba(239,68,68,0.3)" }}>
+                🔴 ST 高风险
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                style={{ background: "rgba(250,204,21,0.1)", color: Y, border: "1px solid rgba(250,204,21,0.2)" }}>
+                ⚠️ 仅供研究
+              </span>
+            </div>
+          </div>
+
+          {/* 策略维度说明 */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "单股最大仓位",  value: "3%",        note: "严格限制" },
+              { label: "ST总仓位上限",  value: "15%",       note: "分散风险" },
+              { label: "最大同时持仓",  value: "3–5 只",   note: "同行业≤1" },
+              { label: "止损比例",      value: "-6%",       note: "2连跌停退出" },
+            ].map(({ label, value, note }) => (
+              <div key={label} className="p-2.5 rounded-xl" style={{ background: "#0a1628" }}>
+                <p className="font-black text-[13px]" style={{ color: R }}>{value}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: DIM }}>{label}</p>
+                <p className="text-[9px]" style={{ color: "#1a2f50" }}>{note}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* 买入条件摘要 */}
+          <div className="p-2.5 rounded-xl" style={{ background: "#0a1628" }}>
+            <p className="text-[10px] font-bold mb-1.5" style={{ color: MID }}>买入条件（同时满足）</p>
+            <div className="space-y-0.5">
+              {[
+                "属于 ST / *ST，非退市整理期",
+                "综合因子评分 ≥ 60（基于 K线，财务/公告数据暂缺）",
+                "流动性：近 20 日均成交额 ≥ 2000 万",
+                "趋势：收盘价站上 MA20",
+                "无 2 日以上连续跌停",
+              ].map((t) => (
+                <div key={t} className="flex items-start gap-1.5">
+                  <span style={{ color: G, fontSize: 9, lineHeight: 1.8 }}>✓</span>
+                  <p className="text-[10px]" style={{ color: "#94A3B8" }}>{t}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 数据说明 */}
+          <div className="p-2 rounded-lg flex items-start gap-1.5"
+            style={{ background: "rgba(250,204,21,0.05)", border: "1px solid rgba(250,204,21,0.15)" }}>
+            <AlertTriangle size={10} color={Y} className="flex-shrink-0 mt-0.5" />
+            <p className="text-[9px] leading-[1.6]" style={{ color: DIM }}>
+              <span style={{ color: Y }}>数据说明：</span>
+              当前因子评分基于 K线数据（趋势/流动性/动量/风险惩罚）。
+              财务基本面（净利润/净资产/负债率）和摘帽公告数据暂未接入，相关因子以中性 50 分处理，综合评分准确性受限。
+            </p>
+          </div>
+        </div>
+
+        {/* ── 当前 ST 候选股票池 ────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <p className="font-bold text-[13px]" style={{ color: MID }}>当前 ST 候选股票池</p>
+              {!poolLoading && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
+                  style={{ background: "rgba(239,68,68,0.1)", color: R }}>
+                  {stStocks.length} 只
+                </span>
+              )}
+            </div>
+            <Link href="/backtest/single">
+              <span className="text-[11px] px-2 py-1 rounded-lg font-bold"
+                style={{ background: "rgba(59,130,246,0.1)", color: B, border: `1px solid ${B}33` }}>
+                单只回测 →
+              </span>
+            </Link>
+          </div>
+
+          {poolLoading && (
+            <div className="flex items-center gap-2 p-4 rounded-2xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              <div className="w-4 h-4 rounded-full border-2 animate-spin"
+                style={{ borderColor: MID, borderTopColor: "transparent" }} />
+              <p className="text-[12px]" style={{ color: MID }}>正在从 Tushare 加载 ST 股票池…</p>
+            </div>
+          )}
+
+          {!poolLoading && poolError && (
+            <div className="p-3 rounded-2xl flex items-start gap-2"
+              style={{ background: "rgba(239,68,68,0.06)", border: `1px solid ${R}33` }}>
+              <AlertTriangle size={13} color={R} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-[12px]" style={{ color: R }}>
+                  {poolError.includes("TOKEN") ? "Tushare Token 未配置，无法获取真实 ST 股票池" : `ST 股票池加载失败：${poolError}`}
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: DIM }}>
+                  本策略不使用 mock 数据替代。请配置 TUSHARE_TOKEN 后重新部署。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!poolLoading && !poolError && stStocks.length > 0 && (
+            <>
+              <div className="space-y-1.5">
+                {displayedPool.map((s) => <STCard key={s.tsCode} s={s} />)}
+              </div>
+              {stStocks.length > 10 && (
+                <button onClick={() => setShowAllPool(!showAllPool)}
+                  className="w-full mt-2 py-2.5 rounded-xl text-[11px] font-bold"
+                  style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>
+                  {showAllPool ? "收起" : `查看全部 ${stStocks.length} 只 ST 股票`}
+                </button>
+              )}
+            </>
+          )}
+
+          {!poolLoading && !poolError && stStocks.length === 0 && (
+            <p className="text-center py-8 text-[12px]" style={{ color: DIM }}>
+              当前暂无符合条件的 ST 股票（可能已全部停牌）
+            </p>
+          )}
+        </div>
+
+        {/* ── Tushare 状态 ─────────────────────────────────── */}
+        <div className="p-3 rounded-xl flex items-center gap-2"
+          style={{
+            background: tushareOk ? "rgba(0,229,168,0.06)" : tushareOk === false ? "rgba(239,68,68,0.06)" : "rgba(148,163,184,0.06)",
+            border: `1px solid ${tushareOk ? "rgba(0,229,168,0.2)" : tushareOk === false ? "rgba(239,68,68,0.2)" : BORDER}`,
+          }}>
+          {tushareOk === null
+            ? <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: MID, borderTopColor: "transparent" }} />
+            : tushareOk
+            ? <Activity size={13} color={G} />
+            : <AlertTriangle size={13} color={R} />
+          }
+          <p className="text-[11px] font-bold"
+            style={{ color: tushareOk ? G : tushareOk === false ? R : MID }}>
+            {tushareOk === null ? "检查 Tushare 连接…" : tushareOk ? "Tushare 已连接 — 使用真实历史 K 线数据" : "Tushare 未连接 — 无法运行真实回测"}
+          </p>
+        </div>
+
+        {/* ── 回测参数 ─────────────────────────────────────── */}
+        <div className="space-y-3">
+          <p className="font-bold text-[13px]" style={{ color: MID }}>ST 策略历史回测</p>
+
+          {/* 时间范围 */}
+          <div>
+            <p className="text-[11px] font-bold mb-1.5" style={{ color: DIM }}>回测时间</p>
+            <div className="grid grid-cols-3 gap-2">
+              {(["近1年","近2年","近3年"] as const).map((t) => (
+                <button key={t} onClick={() => setDateRange(t)}
+                  className="py-2 rounded-xl text-[12px] font-bold"
+                  style={{
+                    background: dateRange === t ? "rgba(239,68,68,0.15)" : CARD,
+                    border: `1px solid ${dateRange === t ? R : BORDER}`,
+                    color: dateRange === t ? R : MID,
+                  }}>{t}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* 初始资金 */}
+          <div>
+            <p className="text-[11px] font-bold mb-1.5" style={{ color: DIM }}>初始资金</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[50000, 100000, 200000, 500000].map((v) => (
+                <button key={v} onClick={() => setCapital(v)}
+                  className="py-2 rounded-xl text-[11px] font-bold"
+                  style={{
+                    background: capital === v ? "rgba(239,68,68,0.15)" : CARD,
+                    border: `1px solid ${capital === v ? R : BORDER}`,
+                    color: capital === v ? R : MID,
+                  }}>¥{v >= 10000 ? `${v/10000}万` : v}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* 高级参数 */}
+          <button onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-[11px] font-bold"
+            style={{ color: DIM }}>
+            {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {showAdvanced ? "收起高级参数" : "高级参数（仓位/止损/评分）"}
+          </button>
+
+          {showAdvanced && (
+            <div className="p-3 rounded-2xl space-y-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              {/* 评分阈值 */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>买入评分阈值（K线因子，缺财务/公告数据）</p>
+                <div className="flex gap-2">
+                  {[50, 55, 60, 65].map((v) => (
+                    <button key={v} onClick={() => setScoreThreshold(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: scoreThreshold === v ? "rgba(250,204,21,0.15)" : "#0a1628",
+                        border: `1px solid ${scoreThreshold === v ? Y : BORDER}`,
+                        color: scoreThreshold === v ? Y : MID,
+                      }}>{v}分</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 最大持仓 */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>最大持仓只数（建议 3–5 只）</p>
+                <div className="flex gap-2">
+                  {[3, 4, 5].map((v) => (
+                    <button key={v} onClick={() => setMaxPositions(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: maxPositions === v ? "rgba(239,68,68,0.12)" : "#0a1628",
+                        border: `1px solid ${maxPositions === v ? R : BORDER}`,
+                        color: maxPositions === v ? R : MID,
+                      }}>{v} 只</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 单股仓位 */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>单股最大仓位（ST 策略上限 5%）</p>
+                <div className="flex gap-2">
+                  {[{ v: 0.02, l: "2%" }, { v: 0.03, l: "3%" }, { v: 0.04, l: "4%" }, { v: 0.05, l: "5%" }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setMaxSingleWT(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: maxSingleWT === v ? "rgba(239,68,68,0.12)" : "#0a1628",
+                        border: `1px solid ${maxSingleWT === v ? R : BORDER}`,
+                        color: maxSingleWT === v ? R : MID,
+                      }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 止损 */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>止损比例（ST 策略额外启用 2 连跌停退出）</p>
+                <div className="flex gap-2">
+                  {[{ v: 0.04, l: "-4%" }, { v: 0.06, l: "-6%" }, { v: 0.08, l: "-8%" }, { v: 0, l: "不止损" }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setStopLoss(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: stopLoss === v ? "rgba(239,68,68,0.12)" : "#0a1628",
+                        border: `1px solid ${stopLoss === v ? R : BORDER}`,
+                        color: stopLoss === v ? R : MID,
+                      }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 调仓频率 */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>调仓频率</p>
+                <div className="flex gap-2">
+                  {[{ v: "weekly" as const, l: "每周调仓" }, { v: "monthly" as const, l: "每月调仓" }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setRebalanceFreq(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: rebalanceFreq === v ? "rgba(239,68,68,0.12)" : "#0a1628",
+                        border: `1px solid ${rebalanceFreq === v ? R : BORDER}`,
+                        color: rebalanceFreq === v ? R : MID,
+                      }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 运行按钮 */}
+          <button onClick={handleRun} disabled={!canRun}
+            className="w-full py-4 rounded-2xl font-black text-[15px]"
+            style={{
+              background: canRun ? "linear-gradient(135deg, #EF4444, #b91c1c)" : CARD,
+              color: canRun ? "#fff" : DIM,
+            }}>
+            {running ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{ borderColor: "#fff", borderTopColor: "transparent" }} />
+                ST 回测运行中（约 30-60s）…
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                <Play size={16} /> 运行 ST 策略真实回测
+              </span>
+            )}
+          </button>
+
+          {/* 回测配置摘要 */}
+          <div className="px-3 py-2 rounded-xl flex flex-wrap gap-x-3 gap-y-1"
+            style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+            {[
+              { k: "ST 股票池", v: `Tushare 全市场 ST` },
+              { k: "时间", v: `${dateRange}` },
+              { k: "资金", v: `¥${fmtMoney(capital)}` },
+              { k: "单股≤", v: `${(maxSingleWT*100).toFixed(0)}%` },
+              { k: "ST总≤", v: `${(maxTotalWT*100).toFixed(0)}%` },
+              { k: "止损", v: stopLoss > 0 ? `-${(stopLoss*100).toFixed(0)}%` : "关闭" },
+            ].map(({ k, v }) => (
+              <span key={k} className="text-[10px]">
+                <span style={{ color: DIM }}>{k}：</span>
+                <span className="font-bold" style={{ color: "#F8FAFC" }}>{v}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ── 错误提示 ─────────────────────────────────────── */}
+        {resultError && (
+          <div className="p-3 rounded-xl flex items-start gap-2"
+            style={{ background: "rgba(239,68,68,0.06)", border: `1px solid ${R}33` }}>
+            <AlertTriangle size={13} color={R} className="flex-shrink-0" />
+            <div>
+              <p className="font-bold text-[12px]" style={{ color: R }}>回测失败</p>
+              <p className="text-[11px] mt-0.5" style={{ color: MID }}>{resultError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════
+            回测结果面板
+        ══════════════════════════════════════════════════ */}
+        {result && (
+          <div className="space-y-4">
+
+            {/* ST 专项统计 */}
+            <div className="p-3 rounded-xl space-y-2"
+              style={{ background: "rgba(239,68,68,0.05)", border: `1px solid ${R}33` }}>
+              <p className="text-[11px] font-bold" style={{ color: R }}>⚠️ ST 策略专项风险指标</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "跌停无法卖出", value: `${result.limitDownStuckCount} 次`, color: result.limitDownStuckCount > 0 ? R : G },
+                  { label: "停牌影响天数", value: `${result.suspendedDayImpact} 天`, color: result.suspendedDayImpact > 10 ? R : Y },
+                  { label: "实际参与ST池", value: `${result.poolSize} 只`,           color: MID },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
+                    <p className="font-black text-[13px] num" style={{ color }}>{value}</p>
+                    <p className="text-[9px] mt-0.5" style={{ color: DIM }}>{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 总收益 + 评分 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl text-center"
+                style={{ background: "rgba(239,68,68,0.06)", border: `1px solid ${R}33` }}>
+                <p className="text-[11px] font-bold mb-1" style={{ color: MID }}>总收益</p>
+                <p className="font-black text-[28px] num" style={{ color: result.totalReturn >= 0 ? G : R }}>
+                  {result.totalReturn >= 0 ? "+" : ""}{result.totalReturn.toFixed(2)}%
+                </p>
+                <p className="text-[10px] mt-1" style={{ color: DIM }}>
+                  ¥{fmtMoney(result.initialCapital)} → ¥{fmtMoney(result.finalCapital)}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { label: "年化收益", value: `${result.annualReturn >= 0 ? "+" : ""}${result.annualReturn.toFixed(1)}%`, color: result.annualReturn >= 0 ? G : R },
+                  { label: "最大回撤", value: `${result.maxDrawdown.toFixed(1)}%`, color: result.maxDrawdown < -20 ? R : Y },
+                  { label: "夏普比率", value: result.sharpeRatio.toFixed(2), color: MID },
+                  { label: "胜率",     value: `${result.winRate.toFixed(0)}%`, color: result.winRate >= 50 ? G : R },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="p-2 rounded-xl text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                    <p className="font-black text-[12px] num" style={{ color }}>{value}</p>
+                    <p className="text-[9px] mt-0.5" style={{ color: DIM }}>{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 更多指标 */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: "盈亏比",    value: result.profitFactor.toFixed(2), color: MID },
+                { label: "总交易",    value: `${result.totalTrades}次`,      color: MID },
+                { label: "连续亏损",  value: `${result.maxConsecutiveLosses}次`, color: result.maxConsecutiveLosses > 5 ? R : MID },
+                { label: "手续费",    value: `${result.feeImpact.toFixed(1)}%`, color: result.feeImpact > 5 ? R : MID },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="p-2.5 rounded-xl text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                  <p className="font-black text-[12px] num" style={{ color }}>{value}</p>
+                  <p className="text-[9px] mt-0.5" style={{ color: DIM }}>{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* 基准说明 */}
+            <div className="p-2.5 rounded-xl" style={{ background: "rgba(250,204,21,0.04)", border: "1px solid rgba(250,204,21,0.12)" }}>
+              <p className="text-[10px]" style={{ color: DIM }}>
+                📊 <span style={{ color: Y }}>基准对比：</span>
+                暂无 ST 等权指数数据，无法自动对比基准。可参考中证退市风险预警指数（若已有权限）。
+              </p>
+            </div>
+
+            {/* 图表 + 风险事件 Tab */}
+            <div className="p-3 rounded-2xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              <div className="flex gap-1 mb-3">
+                {([
+                  { k: "equity" as const,   label: "资金曲线" },
+                  { k: "drawdown" as const, label: "回撤曲线" },
+                  { k: "trades"  as const,  label: "交易记录" },
+                  { k: "risk"    as const,  label: `风险事件(${result.riskEvents.length})` },
+                ] as const).map(({ k, label }) => (
+                  <button key={k} onClick={() => setActiveTab(k as typeof activeTab)}
+                    className="flex-1 py-1.5 rounded-xl text-[10px] font-bold"
+                    style={{
+                      background: activeTab === k ? "rgba(239,68,68,0.15)" : "#0a1628",
+                      border: `1px solid ${activeTab === k ? R : BORDER}`,
+                      color: activeTab === k ? R : MID,
+                    }}>{label}</button>
+                ))}
+              </div>
+
+              {activeTab === "equity"   && <EquityChart   equity={result.equity}     />}
+              {activeTab === "drawdown" && <DrawdownChart drawdown={result.drawdown} />}
+
+              {activeTab === "trades" && (
+                <div>
+                  <p className="text-[10px] font-bold mb-2" style={{ color: MID }}>
+                    卖出记录（共 {result.trades.filter((t) => t.action === "SELL").length} 笔）
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[9px]" style={{ borderCollapse: "separate", borderSpacing: "0 2px" }}>
+                      <thead>
+                        <tr>
+                          {["日期","股票","原因","价格","盈亏"].map((h) => (
+                            <th key={h} className="px-2 py-1 text-left font-bold" style={{ color: DIM }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.trades.filter((t) => t.action === "SELL").slice().reverse().slice(0, 30).map((t, i) => (
+                          <tr key={i} style={{ background: CARD }}>
+                            <td className="px-2 py-1.5 rounded-l-lg" style={{ color: MID }}>{t.date.slice(0,4)+"/"+t.date.slice(4,6)}</td>
+                            <td className="px-2 py-1.5 font-bold" style={{ color: "#F8FAFC" }}>{t.name}</td>
+                            <td className="px-2 py-1.5">
+                              <span className="px-1 py-0.5 rounded text-[8px] font-bold"
+                                style={{
+                                  background: t.reason === "stop_loss" || t.reason === "limit_down_exit"
+                                    ? "rgba(239,68,68,0.15)" : "rgba(148,163,184,0.1)",
+                                  color: t.reason === "stop_loss" || t.reason === "limit_down_exit" ? R : MID,
+                                }}>
+                                {t.reason === "stop_loss" ? "止损" : t.reason === "limit_down_exit" ? "跌停退" : t.reason === "signal" ? "调仓" : "收盘"}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5 num" style={{ color: "#F8FAFC" }}>{t.price.toFixed(2)}</td>
+                            <td className="px-2 py-1.5 num rounded-r-lg font-bold"
+                              style={{ color: t.pnl > 0 ? G : R }}>
+                              {t.pnl > 0 ? "+" : ""}{fmtMoney(t.pnl)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === "risk" && (
+                <div>
+                  <p className="text-[10px] font-bold mb-2" style={{ color: R }}>
+                    风险事件记录（共 {result.riskEvents.length} 条）
+                  </p>
+                  {result.riskEvents.length === 0 ? (
+                    <p className="text-[11px] py-4 text-center" style={{ color: DIM }}>回测期间未触发重大风险事件</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {result.riskEvents.slice(0, 50).map((e, i) => (
+                        <div key={i} className="p-2 rounded-lg flex items-start gap-2"
+                          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                          <AlertTriangle size={10} color={R} className="flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-[10px] font-bold" style={{ color: R }}>
+                              {e.date.slice(0,4)}/{e.date.slice(4,6)} · {e.name}
+                            </p>
+                            <p className="text-[9px]" style={{ color: DIM }}>{e.note}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 数据来源说明 */}
+            <div className="p-3 rounded-xl flex items-start gap-2"
+              style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.12)" }}>
+              <Activity size={12} color={B} className="flex-shrink-0 mt-0.5" />
+              <p className="text-[9px] leading-[1.7]" style={{ color: DIM }}>
+                <span className="font-bold" style={{ color: B }}>数据说明：</span>{result.note}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── 底部风险提示 ─────────────────────────────────── */}
+        <div className="p-3 rounded-xl"
+          style={{ background: "rgba(127,29,29,0.2)", border: `1px solid ${R}33` }}>
+          <p className="text-[10px] leading-[1.7]" style={{ color: "#FCA5A5" }}>
+            ⚠️ <span className="font-bold">风险提示：</span>
+            ST 股票存在终止上市（退市）风险，股票价值可能归零。
+            连续跌停时无法卖出，资金可能被锁定。
+            本策略历史回测数据不代表未来收益，不构成投资建议，不保证盈利。
+            实盘交易需谨慎，盈亏自负。仅适合了解 ST 股票风险的专业研究人员。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function STStrategyPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-24">
+        <div className="w-8 h-8 rounded-full border-2 animate-spin"
+          style={{ borderColor: "#EF4444", borderTopColor: "transparent" }} />
+      </div>
+    }>
+      <STStrategyContent />
+    </Suspense>
+  );
+}
