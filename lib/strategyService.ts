@@ -11,6 +11,7 @@
 
 import { calculateFactorScores } from "./factorService";
 import type { KLineBar, QuoteData } from "./factorService";
+import { getIndexDaily, hasTushareToken, daysAgoStr, todayStr } from "./tushareService";
 
 // ── Strategy stock pool ──────────────────────────────────────────
 // 20 representative large/mid-cap A-share stocks.
@@ -176,15 +177,46 @@ interface MarketTimingResult {
   dataOk:  boolean;
 }
 
-async function assessMarketStatus(): Promise<MarketTimingResult> {
+async function assessMarketStatus(): Promise<MarketTimingResult & { dataSource: string }> {
+  // ── 优先用 Tushare index_daily（更稳定，数据更完整）──────────────
+  if (hasTushareToken()) {
+    try {
+      const res = await getIndexDaily("000300.SH", daysAgoStr(100), todayStr());
+      if (res.ok && res.records.length >= 62) {
+        const sorted = [...res.records].sort((a, b) =>
+          String(a.trade_date).localeCompare(String(b.trade_date))
+        );
+        const closes = sorted.map(r => Number(r.close)).filter(v => v > 0);
+        if (closes.length >= 62) {
+          const cur  = closes[closes.length - 1];
+          const ma60 = closes.slice(-60).reduce((a, b) => a + b, 0) / 60;
+          const dev  = ((cur - ma60) / ma60) * 100;
+          let status: MarketStatus;
+          if      (dev >  3) status = "强势";
+          else if (dev < -3) status = "弱势";
+          else               status = "震荡";
+          return {
+            status,
+            note:       `沪深300 ${cur.toFixed(0)} vs MA60 ${ma60.toFixed(0)}（偏差 ${dev > 0 ? "+" : ""}${dev.toFixed(1)}%）— 数据来自 Tushare`,
+            dataOk:     true,
+            dataSource: "tushare",
+          };
+        }
+      }
+    } catch {
+      // Tushare 失败，降级到东方财富
+    }
+  }
+
+  // ── 降级：东方财富指数 K线 ─────────────────────────────────────
   try {
-    // 沪深300 (000300, SH): needs ≥60 trading days for MA60
     const closes = await fetchIndexCloses("1.000300", 70);
     if (closes.length < 62) {
       return {
-        status: "震荡",
-        note:   `沪深300K线数据不足(${closes.length}条<62)，无法计算MA60，默认震荡`,
-        dataOk: false,
+        status:     "震荡",
+        note:       `沪深300K线数据不足(${closes.length}条<62)，无法计算MA60，默认震荡`,
+        dataOk:     false,
+        dataSource: "none",
       };
     }
     const cur  = closes[closes.length - 1];
@@ -198,14 +230,16 @@ async function assessMarketStatus(): Promise<MarketTimingResult> {
 
     return {
       status,
-      note: `沪深300 ${cur.toFixed(0)} vs MA60 ${ma60.toFixed(0)}（偏差 ${dev > 0 ? "+" : ""}${dev.toFixed(1)}%）`,
-      dataOk: true,
+      note:       `沪深300 ${cur.toFixed(0)} vs MA60 ${ma60.toFixed(0)}（偏差 ${dev > 0 ? "+" : ""}${dev.toFixed(1)}%）— 数据来自东方财富`,
+      dataOk:     true,
+      dataSource: "eastmoney",
     };
   } catch (e) {
     return {
-      status: "数据不足",
-      note:   `指数K线获取失败（${String(e).slice(0, 60)}），择时暂不可用`,
-      dataOk: false,
+      status:     "数据不足",
+      note:       `指数K线获取失败（${String(e).slice(0, 60)}），择时暂不可用`,
+      dataOk:     false,
+      dataSource: "none",
     };
   }
 }
@@ -308,8 +342,13 @@ export async function runAShareMultiFactorStrategy(): Promise<StrategyResult> {
     dataNote: [
       "趋势/动量/量价/风险因子：东方财富日K线（前复权）✅",
       "质量因子（ROE/利润增长/现金流）：暂缺财务接口，中性处理 ⚠️",
-      "估值因子：仅PE/PB，历史分位暂缺 ⚠️",
-      `市场择时：${timing.dataOk ? "✅沪深300 MA60实时计算" : "⚠️" + timing.note}`,
+      "估值因子：PE/PB 来自东方财富实时行情 ✅，历史分位暂缺 ⚠️",
+      `市场择时：${
+        timing.dataOk
+          ? `✅ 沪深300 MA60 实时计算（数据来源：${"dataSource" in timing ? timing.dataSource === "tushare" ? "Tushare" : "东方财富" : "东方财富"}）`
+          : "⚠️ " + timing.note
+      }`,
+      hasTushareToken() ? "Tushare Token ✅ 已配置" : "⚠️ Tushare Token 未配置，部分因子数据不可用",
     ].join("；"),
   };
 }
