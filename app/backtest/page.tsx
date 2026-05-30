@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from "recharts";
@@ -510,6 +511,31 @@ function BacktestForm() {
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
       <PageHeader title="策略回测" />
+
+      {/* ── 回测模式选择 ───────────────────────────────────────────────── */}
+      <div className="mx-4 mt-4 flex gap-2">
+        <button
+          className="flex-1 py-2.5 rounded-2xl text-[13px] font-bold"
+          style={{
+            background: "rgba(0,229,168,0.15)",
+            border: "1px solid rgba(0,229,168,0.5)",
+            color: "#00E5A8",
+          }}
+        >
+          🔄 全市场轮动
+        </button>
+        <Link
+          href="/backtest/single"
+          className="flex-1 py-2.5 rounded-2xl text-[13px] font-bold text-center"
+          style={{
+            background: "#0d1f3c",
+            border: "1px solid #1a2f50",
+            color: "#94A3B8",
+          }}
+        >
+          📈 单只股票
+        </Link>
+      </div>
 
       {/* ── Tushare 状态横幅 ──────────────────────────────────────────── */}
       <div className="mx-4 mt-4 p-3 rounded-2xl flex items-start gap-2"
