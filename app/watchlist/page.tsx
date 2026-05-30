@@ -177,9 +177,9 @@ function StockCard({
             {changePct !== null ? (
               <div className="flex items-center justify-end gap-1">
                 {changePct > 0
-                  ? <TrendingUp  size={11} color={G} />
+                  ? <TrendingUp  size={11} color="#EF4444" />
                   : changePct < 0
-                  ? <TrendingDown size={11} color={R} />
+                  ? <TrendingDown size={11} color="#22C55E" />
                   : null
                 }
                 <span className="font-bold text-[13px] num" style={{ color: pnlColor(changePct) }}>

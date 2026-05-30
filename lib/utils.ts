@@ -36,10 +36,17 @@ export function marketToCurrency(market: Market): Currency {
   return "CNY";
 }
 
+// ── 涨跌颜色常量（A股惯例：涨红跌绿）────────────────────────────
+// 全 App 统一引用，禁止在各页面单独硬编码价格涨跌颜色
+export const PRICE_UP_COLOR   = "#EF4444"; // 涨：红色
+export const PRICE_DOWN_COLOR = "#22C55E"; // 跌：绿色
+export const PRICE_FLAT_COLOR = "#94A3B8"; // 平：灰色
+
+/** 根据涨跌值返回 A股标准颜色：上涨红色 / 下跌绿色 / 平盘灰色 */
 export function pnlColor(val: number): string {
-  if (val > 0) return "#00E5A8";
-  if (val < 0) return "#EF4444";
-  return "#94A3B8";
+  if (val > 0) return PRICE_UP_COLOR;   // 涨：红色
+  if (val < 0) return PRICE_DOWN_COLOR; // 跌：绿色
+  return PRICE_FLAT_COLOR;
 }
 
 export function riskColor(risk: string): string {

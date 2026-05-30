@@ -44,8 +44,8 @@ export default function StockPriceCard({ initialStock }: Props) {
         </p>
         <div className="flex items-center justify-end gap-1 mt-0.5">
           {s.changePct > 0
-            ? <TrendingUp size={12} color="#00E5A8" />
-            : <TrendingDown size={12} color="#EF4444" />}
+            ? <TrendingUp size={12} color="#EF4444" />
+            : <TrendingDown size={12} color="#22C55E" />}
           <span className="font-bold text-[14px] num" style={{ color: pnlColor(s.changePct) }}>
             {formatPct(s.changePct)}
           </span>

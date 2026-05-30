@@ -151,9 +151,10 @@ function ResultContent() {
           <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>月度收益分布</h2>
           <div className="grid grid-cols-6 gap-1.5">
             {bt.monthlyReturns.map((mr) => {
-              const c = mr.return > 3 ? "#00E5A8" : mr.return > 0 ? "#00b885" : mr.return > -3 ? "#EF4444" : "#dc2626";
-              const bg = mr.return > 3 ? "rgba(0,229,168,0.2)" : mr.return > 0 ? "rgba(0,229,168,0.1)"
-                : mr.return > -3 ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.25)";
+              // 涨红跌绿（A股惯例）：月度正收益=红，月度负收益=绿
+              const c = mr.return > 3 ? "#EF4444" : mr.return > 0 ? "#dc2626" : mr.return > -3 ? "#22C55E" : "#16a34a";
+              const bg = mr.return > 3 ? "rgba(239,68,68,0.22)" : mr.return > 0 ? "rgba(239,68,68,0.10)"
+                : mr.return > -3 ? "rgba(34,197,94,0.15)" : "rgba(34,197,94,0.26)";
               return (
                 <div key={mr.month} className="p-2 rounded-lg text-center" style={{ background: bg }}>
                   <p className="text-[10px]" style={{ color: "#94A3B8" }}>{mr.month.slice(5)}</p>
