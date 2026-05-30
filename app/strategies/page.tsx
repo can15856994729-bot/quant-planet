@@ -22,6 +22,17 @@ export default function StrategiesPage() {
     // 阻止 Link 点击冒泡，直接跳转回测页
     e.preventDefault();
     e.stopPropagation();
+    // ST策略有专属回测页面
+    if (strategyId === "st-risk-reversal") {
+      router.push("/strategies/st-risk-reversal");
+      return;
+    }
+    // 多因子轮动策略直接到回测页（默认模式）
+    if (strategyId === "a-share-multi-factor") {
+      router.push("/backtest");
+      return;
+    }
+    // 其他策略跳转到回测页，带上strategyId（显示"暂未实现"提示）
     router.push(`/backtest?strategy=${strategyId}`);
   }
 

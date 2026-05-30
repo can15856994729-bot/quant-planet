@@ -37,12 +37,28 @@ function ResultContent() {
       <PageHeader title="回测结果" />
       <div className="px-4 pt-4 space-y-4 pb-24">
 
+        {/* 数据说明横幅 */}
+        <div className="p-3 rounded-xl flex items-start gap-2"
+          style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.25)" }}>
+          <Info size={13} color="#FACC15" className="flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-[1.6]" style={{ color: "#94A3B8" }}>
+            <span className="font-bold" style={{ color: "#FACC15" }}>⚠️ 展示数据说明：</span>
+            此页面展示的是<span className="font-bold" style={{ color: "#F8FAFC" }}>历史参考示例数据</span>，
+            非真实 Tushare 回测结果。策略「{strategy.name}」暂未实现专属真实回测。
+            如需真实回测，请使用
+            <Link href="/backtest" className="underline" style={{ color: "#00E5A8" }}>多因子轮动回测</Link>（已接入 Tushare）。
+          </p>
+        </div>
+
         {/* 标题概要 */}
         <div className="p-4 rounded-2xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
           <div className="flex items-center justify-between mb-1">
             <div>
               <p className="font-black text-[15px]" style={{ color: "#F8FAFC" }}>{strategy.name}</p>
-              <p className="text-[12px] mt-0.5" style={{ color: "#94A3B8" }}>{stock.name} ({stock.symbol}) · {bt.period}</p>
+              <p className="text-[12px] mt-0.5" style={{ color: "#94A3B8" }}>{stock.name} ({stock.symbol}) · {bt.period}
+                <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold"
+                  style={{ background: "rgba(250,204,21,0.12)", color: "#FACC15" }}>参考数据</span>
+              </p>
             </div>
             <div className="text-center">
               <div className="w-14 h-14 rounded-full flex flex-col items-center justify-center"

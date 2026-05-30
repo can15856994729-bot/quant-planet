@@ -334,12 +334,18 @@ export default function StrategyDetailPage() {
           </p>
         </div>
 
-        {/* 开始回测按钮 */}
-        <Link href={`/backtest?strategy=${st.id}`}>
+        {/* 开始回测按钮 — 根据策略路由到对应页面 */}
+        <Link href={
+          st.id === "st-risk-reversal"      ? "/strategies/st-risk-reversal" :
+          st.id === "a-share-multi-factor"  ? "/backtest" :
+          `/backtest?strategy=${st.id}`
+        }>
           <div className="w-full py-4 rounded-2xl font-black text-[16px] text-center glow-green"
             style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
             <BarChart3 size={18} className="inline mr-2" />
-            开始回测此策略
+            {st.id === "st-risk-reversal"     ? "进入 ST 专属回测页面" :
+             st.id === "a-share-multi-factor" ? "开始真实回测" :
+             "查看回测信息"}
           </div>
         </Link>
       </div>

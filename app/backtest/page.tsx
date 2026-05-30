@@ -13,6 +13,28 @@ import {
 import PageHeader from "@/components/layout/PageHeader";
 import { useStrategyConfigStore } from "@/lib/strategyConfigStore";
 import type { SavedStrategyConfig } from "@/lib/strategyConfigStore";
+import { MOCK_STRATEGIES } from "@/lib/mock-data";
+
+// ── 策略回测实现状态 ────────────────────────────────────────────────────
+// 说明每个策略的回测支持情况，避免所有策略复用同一个多因子结果
+const STRATEGY_BACKTEST_STATUS: Record<string, {
+  supported: boolean;
+  type: "multi_factor" | "dedicated_page" | "not_implemented";
+  dedicatedPath?: string;
+  note: string;
+}> = {
+  "a-share-multi-factor": {
+    supported: true,
+    type: "multi_factor",
+    note: "✅ 已支持真实回测 — A股多因子轮动，使用 Tushare 日线数据",
+  },
+  "st-risk-reversal": {
+    supported: true,
+    type: "dedicated_page",
+    dedicatedPath: "/strategies/st-risk-reversal",
+    note: "✅ 已支持真实回测 — 有专属回测页面",
+  },
+};
 
 // ── 颜色常量 ────────────────────────────────────────────────────────────
 const G = "#00E5A8";
@@ -376,6 +398,16 @@ function BacktestForm() {
   const router  = useRouter();
   const params  = useSearchParams();
 
+  // ── 策略感知 — 判断当前URL中请求的是哪个策略 ──────────────────────
+  const strategyParam = params.get("strategy") ?? "";
+  const requestedStrategy = MOCK_STRATEGIES.find((s) => s.id === strategyParam) ?? null;
+  const backtestStatus    = strategyParam ? (STRATEGY_BACKTEST_STATUS[strategyParam] ?? null) : null;
+
+  // 当前页面仅支持多因子轮动（multi_factor），其他策略显示相应提示
+  const isMultiFactorMode  = !strategyParam || strategyParam === "a-share-multi-factor";
+  const needsRedirect      = backtestStatus?.type === "dedicated_page";
+  const isNotImplemented   = strategyParam && !isMultiFactorMode && !needsRedirect;
+
   // ── Config state ────────────────────────────────────────────────
   const [dateRange,       setDateRange]       = useState<DateRange>("近3年");
   const [customStart,     setCustomStart]     = useState(ymdToInput(yearsAgoYMD(3)));
@@ -547,7 +579,8 @@ function BacktestForm() {
     router.push("/sim-trading");
   }
 
-  const canRun = tushareOk === true && !running;
+  // 只有多因子模式才允许运行（防止未实现策略误用多因子结果）
+  const canRun = tushareOk === true && !running && isMultiFactorMode;
 
   // ════════════════════════════════════════════════════════════════
   return (
@@ -605,6 +638,107 @@ function BacktestForm() {
           )}
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════
+          策略上下文横幅（当从策略详情页跳转时显示）
+      ══════════════════════════════════════════════════════════════ */}
+
+      {/* ① ST策略 — 重定向到专属页面 */}
+      {needsRedirect && backtestStatus?.dedicatedPath && (
+        <div className="mx-4 mt-4 p-4 rounded-2xl"
+          style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.35)" }}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} color={R} className="flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-black text-[14px] mb-1" style={{ color: R }}>
+                此策略有专属回测页面
+              </p>
+              <p className="text-[12px] mb-3" style={{ color: MID }}>
+                「{requestedStrategy?.name ?? strategyParam}」使用专属引擎回测，请前往专属页面运行，
+                不能在此复用多因子轮动的结果（否则数据将完全错误）。
+              </p>
+              <Link href={backtestStatus.dedicatedPath}>
+                <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[13px]"
+                  style={{ background: "rgba(239,68,68,0.15)", color: R, border: "1px solid rgba(239,68,68,0.4)" }}>
+                  <ArrowRight size={14} /> 前往「{requestedStrategy?.name ?? "专属回测"}」
+                </div>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ② 其他策略 — 暂未实现真实回测 */}
+      {isNotImplemented && (
+        <div className="mx-4 mt-4 p-4 rounded-2xl space-y-3"
+          style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.35)" }}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} color={Y} className="flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-black text-[14px] mb-1" style={{ color: Y }}>
+                该策略暂未支持真实回测
+              </p>
+              <p className="text-[12px] leading-[1.7]" style={{ color: MID }}>
+                <span className="font-bold" style={{ color: "#F8FAFC" }}>
+                  「{requestedStrategy?.name ?? strategyParam}」
+                </span>
+                的专属回测引擎开发中。
+              </p>
+              <p className="text-[11px] mt-1 leading-[1.6]" style={{ color: DIM }}>
+                策略ID: <span style={{ color: Y }}>{strategyParam}</span> ·
+                类型: {requestedStrategy?.marketCondition ?? "—"} ·
+                风险: {requestedStrategy?.riskLevel ?? "—"}
+              </p>
+            </div>
+          </div>
+
+          {/* 各策略的理论逻辑说明 */}
+          {requestedStrategy && (
+            <div className="p-3 rounded-xl" style={{ background: "rgba(0,0,0,0.2)" }}>
+              <p className="text-[11px] font-bold mb-1" style={{ color: MID }}>策略说明</p>
+              <p className="text-[11px] leading-[1.7]" style={{ color: DIM }}>{requestedStrategy.description}</p>
+            </div>
+          )}
+
+          <div className="p-3 rounded-xl" style={{ background: "rgba(250,204,21,0.05)", border: "1px solid rgba(250,204,21,0.15)" }}>
+            <p className="text-[11px] font-bold mb-2" style={{ color: Y }}>当前已支持真实回测的策略</p>
+            <div className="space-y-1.5">
+              <Link href="/backtest">
+                <div className="flex items-center justify-between p-2.5 rounded-xl active:opacity-70"
+                  style={{ background: "rgba(0,229,168,0.08)", border: "1px solid rgba(0,229,168,0.2)" }}>
+                  <div>
+                    <p className="text-[12px] font-bold" style={{ color: G }}>A股稳健多因子轮动策略</p>
+                    <p className="text-[10px]" style={{ color: DIM }}>Tushare 全市场 · 行业分散 · 多因子评分</p>
+                  </div>
+                  <ArrowRight size={14} color={G} />
+                </div>
+              </Link>
+              <Link href="/strategies/st-risk-reversal">
+                <div className="flex items-center justify-between p-2.5 rounded-xl active:opacity-70"
+                  style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  <div>
+                    <p className="text-[12px] font-bold" style={{ color: R }}>A股 ST 风险反转策略</p>
+                    <p className="text-[10px]" style={{ color: DIM }}>ST专属引擎 · 量能突破 · 止盈止损</p>
+                  </div>
+                  <ArrowRight size={14} color={R} />
+                </div>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ③ 多因子模式 — 显示当前回测的策略名称（如从策略页跳入） */}
+      {strategyParam === "a-share-multi-factor" && (
+        <div className="mx-4 mt-4 px-3 py-2 rounded-xl flex items-center gap-2"
+          style={{ background: "rgba(0,229,168,0.06)", border: "1px solid rgba(0,229,168,0.2)" }}>
+          <CheckCircle size={13} color={G} />
+          <p className="text-[12px]" style={{ color: G }}>
+            正在回测：<span className="font-bold">A股稳健多因子轮动策略</span>
+            <span style={{ color: DIM }}> · strategyId: {strategyParam}</span>
+          </p>
+        </div>
+      )}
 
       <div className="px-4 pt-4 space-y-4 pb-10">
 
@@ -942,7 +1076,20 @@ function BacktestForm() {
 
         {/* ── 运行按钮 ────────────────────────────────────────────────── */}
         <div className="flex gap-2">
-          {tushareOk === false ? (
+          {/* 未实现策略：禁用按钮并提示 */}
+          {isNotImplemented ? (
+            <div className="flex-1 py-4 rounded-2xl font-black text-[14px] flex items-center justify-center gap-2 cursor-not-allowed"
+              style={{ background: "rgba(250,204,21,0.08)", border: `1px solid rgba(250,204,21,0.3)`, color: Y }}>
+              <AlertTriangle size={15} /> 该策略暂未支持真实回测
+            </div>
+          ) : needsRedirect && backtestStatus?.dedicatedPath ? (
+            <Link href={backtestStatus.dedicatedPath} className="flex-1">
+              <div className="w-full py-4 rounded-2xl font-black text-[16px] text-center"
+                style={{ background: "linear-gradient(135deg, #EF4444, #b91c1c)", color: "#fff" }}>
+                <ArrowRight size={16} className="inline mr-2" /> 前往专属回测页面
+              </div>
+            </Link>
+          ) : tushareOk === false ? (
             <div className="flex-1 py-4 rounded-2xl font-black text-[14px] flex items-center justify-center gap-2"
               style={{ background: CARD, border: `1px solid ${BORDER}`, color: DIM }}>
               <Lock size={15} /> Tushare 未配置
@@ -962,7 +1109,7 @@ function BacktestForm() {
                 </span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
-                  <Play size={16} /> 运行真实回测
+                  <Play size={16} /> 运行真实回测（A股多因子轮动）
                 </span>
               )}
             </button>
@@ -1073,6 +1220,29 @@ function BacktestForm() {
         ══════════════════════════════════════════════════════════════ */}
         {result && (
           <div className="space-y-4">
+
+            {/* 回测策略标识 */}
+            <div className="px-3 py-2 rounded-xl flex flex-wrap items-center gap-x-3 gap-y-1"
+              style={{ background: "rgba(0,229,168,0.05)", border: "1px solid rgba(0,229,168,0.15)" }}>
+              <span className="text-[11px]">
+                <span style={{ color: DIM }}>回测策略：</span>
+                <span className="font-bold" style={{ color: G }}>A股稳健多因子轮动策略</span>
+              </span>
+              <span className="text-[11px]">
+                <span style={{ color: DIM }}>ID：</span>
+                <span className="font-bold" style={{ color: MID }}>a-share-multi-factor</span>
+              </span>
+              <span className="text-[11px]">
+                <span style={{ color: DIM }}>数据来源：</span>
+                <span className="font-bold" style={{ color: MID }}>Tushare daily · stock_basic</span>
+              </span>
+              <span className="text-[11px]">
+                <span style={{ color: DIM }}>股票池：</span>
+                <span className="font-bold" style={{ color: MID }}>
+                  {result.poolStats?.poolMode === "full_market" ? `全市场轮动 (${result.poolStats.inPool}只)` : "大盘龙头 20只"}
+                </span>
+              </span>
+            </div>
 
             {/* 总收益 + 评分 */}
             <div className="grid grid-cols-2 gap-3">
