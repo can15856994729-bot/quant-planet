@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers } from "lucide-react";
-import { MOCK_STOCKS, MOCK_SIM_ACCOUNT, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
+import { MOCK_STOCKS, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
 import HomeStrategySignalCard from "@/components/ui/HomeStrategySignalCard";
+import HomeSimAccountCard from "@/components/ui/HomeSimAccountCard";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
 import { getRiskReport, riskLevelColor } from "@/lib/riskService";
 import HomeMarket from "@/components/ui/HomeMarket";
@@ -42,13 +43,7 @@ export default function HomePage() {
               今日 <span className="up font-semibold">+¥0.00</span>
             </p>
           </div>
-          <Link href="/sim-trading">
-            <div className="p-3 rounded-2xl h-full" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-              <p className="text-[10px] font-semibold mb-1.5" style={{ color: "#94A3B8" }}>我的模拟账户</p>
-              <p className="font-black text-[18px] num" style={{ color: "#F8FAFC" }}>¥{MOCK_SIM_ACCOUNT.totalValue.toLocaleString()}</p>
-              <p className="text-[11px] mt-0.5" style={{ color: "#94A3B8" }}>今日 <span className="up font-semibold">+{MOCK_SIM_ACCOUNT.todayPnlPct.toFixed(2)}%</span></p>
-            </div>
-          </Link>
+          <HomeSimAccountCard />
           <HomeStrategySignalCard />
           <Link href="/risk">
             <div className="p-3 rounded-2xl h-full active:opacity-70 transition-opacity"
