@@ -57,6 +57,8 @@ interface STResult {
   trades: STTrade[];
   limitDownStuckCount: number; suspendedDayImpact: number;
   riskEvents: RiskEvent[]; poolSize: number;
+  // v2 新增
+  takeProfitCount: number; timeStopCount: number; stopLossCount: number;
   source: string; note: string;
   initialCapital: number; finalCapital: number;
 }
@@ -227,11 +229,13 @@ function STStrategyContent() {
   const [tushareOk,       setTushareOk]       = useState<boolean | null>(null);
   const [dateRange,       setDateRange]       = useState<"近1年"|"近2年"|"近3年">("近1年");
   const [capital,         setCapital]         = useState(100000);
-  const [scoreThreshold,  setScoreThreshold]  = useState(60);
-  const [maxPositions,    setMaxPositions]    = useState(5);
+  const [scoreThreshold,  setScoreThreshold]  = useState(70);   // v2: 70（原60）
+  const [maxPositions,    setMaxPositions]    = useState(3);    // v2: 3（原5）
   const [maxSingleWT,     setMaxSingleWT]     = useState(0.03);
-  const [maxTotalWT,      setMaxTotalWT]      = useState(0.15);
-  const [stopLoss,        setStopLoss]        = useState(0.06);
+  const [maxTotalWT,      setMaxTotalWT]      = useState(0.10); // v2: 10%（原15%）
+  const [stopLoss,        setStopLoss]        = useState(0.05); // v2: 5%（原6%）
+  const [takeProfit,      setTakeProfit]      = useState(0.20); // v2 新增: 止盈 20%
+  const [maxHoldDays,     setMaxHoldDays]     = useState(20);   // v2 新增: 时间止损 20日
   const [rebalanceFreq,   setRebalanceFreq]   = useState<"weekly"|"monthly">("weekly");
   const [showAdvanced,    setShowAdvanced]    = useState(false);
   const [activeTab,       setActiveTab]       = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
@@ -278,7 +282,10 @@ function STStrategyContent() {
           initialCapital: capital,
           maxPositions, maxSingleWeight: maxSingleWT,
           maxTotalSTWeight: maxTotalWT,
-          stopLossRate: stopLoss, rebalanceFreq,
+          stopLossRate:   stopLoss,
+          takeProfitRate: takeProfit,  // v2 止盈
+          maxHoldDays:    maxHoldDays, // v2 时间止损
+          rebalanceFreq,
           scoreThreshold,
         }),
       });
@@ -320,32 +327,34 @@ function STStrategyContent() {
             </div>
           </div>
 
-          {/* 策略维度说明 */}
+          {/* 策略维度说明（v2 更新） */}
           <div className="grid grid-cols-2 gap-2">
             {[
-              { label: "单股最大仓位",  value: "3%",        note: "严格限制" },
-              { label: "ST总仓位上限",  value: "15%",       note: "分散风险" },
-              { label: "最大同时持仓",  value: "3–5 只",   note: "同行业≤1" },
-              { label: "止损比例",      value: "-6%",       note: "2连跌停退出" },
+              { label: "单股最大仓位",  value: "3%",   note: "严格限制" },
+              { label: "ST总仓位上限",  value: "10%",  note: "v2收紧" },
+              { label: "最大同时持仓",  value: "3 只", note: "v2更集中" },
+              { label: "止损/止盈",    value: "-5%/+20%", note: "新增止盈" },
             ].map(({ label, value, note }) => (
               <div key={label} className="p-2.5 rounded-xl" style={{ background: "#0a1628" }}>
                 <p className="font-black text-[13px]" style={{ color: R }}>{value}</p>
                 <p className="text-[10px] mt-0.5" style={{ color: DIM }}>{label}</p>
-                <p className="text-[9px]" style={{ color: "#1a2f50" }}>{note}</p>
+                <p className="text-[9px]" style={{ color: G }}>{note}</p>
               </div>
             ))}
           </div>
 
-          {/* 买入条件摘要 */}
+          {/* 买入条件摘要（v2 严格版） */}
           <div className="p-2.5 rounded-xl" style={{ background: "#0a1628" }}>
-            <p className="text-[10px] font-bold mb-1.5" style={{ color: MID }}>买入条件（同时满足）</p>
+            <p className="text-[10px] font-bold mb-1.5" style={{ color: MID }}>买入条件 v2（同时满足全部）</p>
             <div className="space-y-0.5">
               {[
                 "属于 ST / *ST，非退市整理期",
-                "综合因子评分 ≥ 60（基于 K线，财务/公告数据暂缺）",
-                "流动性：近 20 日均成交额 ≥ 2000 万",
-                "趋势：收盘价站上 MA20",
-                "无 2 日以上连续跌停",
+                "综合因子评分 ≥ 70（v2 提高，原60）",
+                "量能突破评分 ≥ 55（v2新增：聪明钱代理信号）",
+                "流动性：近20日均额 ≥ 3000万（v2 提高，原2000万）",
+                "趋势：价格站上 MA20，趋势评分 ≥ 65（v2 提高）",
+                "跌停零容忍：任何跌停均不买（v2新增，原<2次）",
+                "股价 ≥ 2元（v2新增：防面值退市）",
               ].map((t) => (
                 <div key={t} className="flex items-start gap-1.5">
                   <span style={{ color: G, fontSize: 9, lineHeight: 1.8 }}>✓</span>
@@ -355,14 +364,14 @@ function STStrategyContent() {
             </div>
           </div>
 
-          {/* 数据说明 */}
+          {/* v2 优化说明 */}
           <div className="p-2 rounded-lg flex items-start gap-1.5"
-            style={{ background: "rgba(250,204,21,0.05)", border: "1px solid rgba(250,204,21,0.15)" }}>
-            <AlertTriangle size={10} color={Y} className="flex-shrink-0 mt-0.5" />
+            style={{ background: "rgba(0,229,168,0.04)", border: "1px solid rgba(0,229,168,0.15)" }}>
+            <TrendingUp size={10} color={G} className="flex-shrink-0 mt-0.5" />
             <p className="text-[9px] leading-[1.6]" style={{ color: DIM }}>
-              <span style={{ color: Y }}>数据说明：</span>
-              当前因子评分基于 K线数据（趋势/流动性/动量/风险惩罚）。
-              财务基本面（净利润/净资产/负债率）和摘帽公告数据暂未接入，相关因子以中性 50 分处理，综合评分准确性受限。
+              <span style={{ color: G }}>v2 优化：</span>
+              引入量能突破因子（替代无效的固定50分占位），删除"低位加分"反向信号，
+              新增止盈(+20%)和时间止损(20日)，跌停零容忍，综合门槛从60提至70。
             </p>
           </div>
         </div>
@@ -498,9 +507,9 @@ function STStrategyContent() {
             <div className="p-3 rounded-2xl space-y-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
               {/* 评分阈值 */}
               <div>
-                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>买入评分阈值（K线因子，缺财务/公告数据）</p>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>买入综合评分阈值（v2 默认70，同时需量能≥55）</p>
                 <div className="flex gap-2">
-                  {[50, 55, 60, 65].map((v) => (
+                  {[60, 65, 70, 75].map((v) => (
                     <button key={v} onClick={() => setScoreThreshold(v)}
                       className="flex-1 py-2 rounded-xl text-[11px] font-bold"
                       style={{
@@ -546,15 +555,47 @@ function STStrategyContent() {
 
               {/* 止损 */}
               <div>
-                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>止损比例（ST 策略额外启用 2 连跌停退出）</p>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>止损比例（v2默认-5%，2连跌停额外强制退出）</p>
                 <div className="flex gap-2">
-                  {[{ v: 0.04, l: "-4%" }, { v: 0.06, l: "-6%" }, { v: 0.08, l: "-8%" }, { v: 0, l: "不止损" }].map(({ v, l }) => (
+                  {[{ v: 0.04, l: "-4%" }, { v: 0.05, l: "-5%" }, { v: 0.06, l: "-6%" }, { v: 0, l: "不止损" }].map(({ v, l }) => (
                     <button key={v} onClick={() => setStopLoss(v)}
                       className="flex-1 py-2 rounded-xl text-[11px] font-bold"
                       style={{
                         background: stopLoss === v ? "rgba(239,68,68,0.12)" : "#0a1628",
                         border: `1px solid ${stopLoss === v ? R : BORDER}`,
                         color: stopLoss === v ? R : MID,
+                      }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 止盈（v2 新增） */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>止盈比例（v2新增，ST脉冲行情不止盈=利润归零）</p>
+                <div className="flex gap-2">
+                  {[{ v: 0.15, l: "+15%" }, { v: 0.20, l: "+20%" }, { v: 0.30, l: "+30%" }, { v: 0, l: "不止盈" }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setTakeProfit(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: takeProfit === v ? "rgba(0,229,168,0.12)" : "#0a1628",
+                        border: `1px solid ${takeProfit === v ? G : BORDER}`,
+                        color: takeProfit === v ? G : MID,
+                      }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 时间止损（v2 新增） */}
+              <div>
+                <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>时间止损（持仓超期不涨，时间也是成本）</p>
+                <div className="flex gap-2">
+                  {[{ v: 15, l: "15日" }, { v: 20, l: "20日" }, { v: 30, l: "30日" }, { v: 0, l: "不限" }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setMaxHoldDays(v)}
+                      className="flex-1 py-2 rounded-xl text-[11px] font-bold"
+                      style={{
+                        background: maxHoldDays === v ? "rgba(250,204,21,0.12)" : "#0a1628",
+                        border: `1px solid ${maxHoldDays === v ? Y : BORDER}`,
+                        color: maxHoldDays === v ? Y : MID,
                       }}>{l}</button>
                   ))}
                 </div>
@@ -602,12 +643,16 @@ function STStrategyContent() {
           <div className="px-3 py-2 rounded-xl flex flex-wrap gap-x-3 gap-y-1"
             style={{ background: CARD, border: `1px solid ${BORDER}` }}>
             {[
-              { k: "ST 股票池", v: `Tushare 全市场 ST` },
+              { k: "ST 股票池", v: `Tushare 全市场` },
               { k: "时间", v: `${dateRange}` },
               { k: "资金", v: `¥${fmtMoney(capital)}` },
+              { k: "评分≥", v: `${scoreThreshold}分` },
+              { k: "持仓≤", v: `${maxPositions}只` },
               { k: "单股≤", v: `${(maxSingleWT*100).toFixed(0)}%` },
               { k: "ST总≤", v: `${(maxTotalWT*100).toFixed(0)}%` },
               { k: "止损", v: stopLoss > 0 ? `-${(stopLoss*100).toFixed(0)}%` : "关闭" },
+              { k: "止盈", v: takeProfit > 0 ? `+${(takeProfit*100).toFixed(0)}%` : "关闭" },
+              { k: "时间止损", v: maxHoldDays > 0 ? `${maxHoldDays}日` : "关闭" },
             ].map(({ k, v }) => (
               <span key={k} className="text-[10px]">
                 <span style={{ color: DIM }}>{k}：</span>
@@ -635,15 +680,18 @@ function STStrategyContent() {
         {result && (
           <div className="space-y-4">
 
-            {/* ST 专项统计 */}
+            {/* ST 专项统计（v2 扩展） */}
             <div className="p-3 rounded-xl space-y-2"
               style={{ background: "rgba(239,68,68,0.05)", border: `1px solid ${R}33` }}>
-              <p className="text-[11px] font-bold" style={{ color: R }}>⚠️ ST 策略专项风险指标</p>
+              <p className="text-[11px] font-bold" style={{ color: R }}>⚠️ ST 策略专项风险&收益指标</p>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: "跌停无法卖出", value: `${result.limitDownStuckCount} 次`, color: result.limitDownStuckCount > 0 ? R : G },
-                  { label: "停牌影响天数", value: `${result.suspendedDayImpact} 天`, color: result.suspendedDayImpact > 10 ? R : Y },
-                  { label: "实际参与ST池", value: `${result.poolSize} 只`,           color: MID },
+                  { label: "跌停无法卖出", value: `${result.limitDownStuckCount} 次`,    color: result.limitDownStuckCount > 0 ? R : G },
+                  { label: "停牌影响天数", value: `${result.suspendedDayImpact} 天`,     color: result.suspendedDayImpact > 10 ? R : Y },
+                  { label: "实际参与ST池", value: `${result.poolSize} 只`,               color: MID },
+                  { label: "触发止盈",     value: `${result.takeProfitCount ?? 0} 次`,   color: G },
+                  { label: "时间止损",     value: `${result.timeStopCount ?? 0} 次`,     color: Y },
+                  { label: "触发止损",     value: `${result.stopLossCount ?? 0} 次`,     color: result.stopLossCount > 5 ? R : MID },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="p-2 rounded-lg text-center" style={{ background: "#0a1628" }}>
                     <p className="font-black text-[13px] num" style={{ color }}>{value}</p>
@@ -747,11 +795,24 @@ function STStrategyContent() {
                             <td className="px-2 py-1.5">
                               <span className="px-1 py-0.5 rounded text-[8px] font-bold"
                                 style={{
-                                  background: t.reason === "stop_loss" || t.reason === "limit_down_exit"
-                                    ? "rgba(239,68,68,0.15)" : "rgba(148,163,184,0.1)",
-                                  color: t.reason === "stop_loss" || t.reason === "limit_down_exit" ? R : MID,
+                                  background:
+                                    t.reason === "stop_loss"       ? "rgba(239,68,68,0.15)" :
+                                    t.reason === "limit_down_exit" ? "rgba(239,68,68,0.20)" :
+                                    t.reason === "take_profit"     ? "rgba(0,229,168,0.15)" :
+                                    t.reason === "time_stop"       ? "rgba(250,204,21,0.12)" :
+                                    "rgba(148,163,184,0.1)",
+                                  color:
+                                    t.reason === "stop_loss"       ? R :
+                                    t.reason === "limit_down_exit" ? R :
+                                    t.reason === "take_profit"     ? G :
+                                    t.reason === "time_stop"       ? Y :
+                                    MID,
                                 }}>
-                                {t.reason === "stop_loss" ? "止损" : t.reason === "limit_down_exit" ? "跌停退" : t.reason === "signal" ? "调仓" : "收盘"}
+                                {t.reason === "stop_loss"       ? "止损"   :
+                                 t.reason === "limit_down_exit" ? "跌停退" :
+                                 t.reason === "take_profit"     ? "止盈✓"  :
+                                 t.reason === "time_stop"       ? "超期"   :
+                                 t.reason === "signal"          ? "调仓"   : "收盘"}
                               </span>
                             </td>
                             <td className="px-2 py-1.5 num" style={{ color: "#F8FAFC" }}>{t.price.toFixed(2)}</td>
