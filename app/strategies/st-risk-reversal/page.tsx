@@ -23,6 +23,7 @@ import {
   Play, RefreshCw, ChevronDown, ChevronUp, Activity, Info,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SingleSTBacktest from "./SingleSTBacktest";
 
 // ── 颜色常量 ──────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -403,6 +404,7 @@ function STStrategyContent() {
   const [showAdvanced,   setShowAdvanced]   = useState(false);
   const [activeTab,      setActiveTab]      = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
   const [showDiag,       setShowDiag]       = useState(false);
+  const [pageMode,       setPageMode]       = useState<"pool" | "single">("pool");
 
   const [running,     setRunning]     = useState(false);
   const [result,      setResult]      = useState<STResult | null>(null);
@@ -621,6 +623,27 @@ function STStrategyContent() {
             {tushareOk === null ? "检查 Tushare 连接…" : tushareOk ? "Tushare 已连接 — 使用真实历史 K 线数据" : "Tushare 未连接 — 无法运行真实回测"}
           </p>
         </div>
+
+        {/* ── 回测模式切换 ─────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-2">
+          {(["pool", "single"] as const).map((m) => {
+            const isActive = pageMode === m;
+            return (
+              <button key={m} onClick={() => setPageMode(m)}
+                className="py-3 rounded-2xl text-[13px] font-black"
+                style={{
+                  background: isActive ? "rgba(239,68,68,0.18)" : CARD,
+                  border: `2px solid ${isActive ? R : BORDER}`,
+                  color: isActive ? R : MID,
+                }}>
+                {m === "pool" ? "🏦 股票池回测" : "🔍 单只股票回测"}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── 股票池回测模式 ────────────────────────────────── */}
+        {pageMode === "pool" && (<>
 
         {/* ── 回测参数 ─────────────────────────────────────── */}
         <div className="space-y-3">
@@ -1073,6 +1096,14 @@ function STStrategyContent() {
               </div>
             )}
           </div>
+        )}
+
+        {/* 关闭股票池回测模式 */}
+        </>)}
+
+        {/* ── 单只股票回测模式 ─────────────────────────────── */}
+        {pageMode === "single" && (
+          <SingleSTBacktest stStocks={stStocks} tushareOk={tushareOk} />
         )}
 
         {/* ── 底部风险提示 ─────────────────────────────────── */}
