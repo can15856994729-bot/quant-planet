@@ -414,9 +414,9 @@ function BacktestForm() {
   const [customEnd,       setCustomEnd]       = useState(ymdToInput(todayYMD()));
   const [capital,         setCapital]         = useState(100000);
   const [maxPositions,    setMaxPositions]    = useState(10);
-  const [rebalanceFreq,   setRebalanceFreq]   = useState<"weekly" | "monthly">("weekly");
+  const [rebalanceFreq,   setRebalanceFreq]   = useState<"weekly" | "monthly">("monthly");
   const [maxWeight,       setMaxWeight]       = useState(0.20);
-  const [stopLoss,        setStopLoss]        = useState(0.08);   // 0 = off
+  const [stopLoss,        setStopLoss]        = useState(0.10);   // 0 = off
   const [takeProfit,      setTakeProfit]      = useState(0.30);   // 0 = off
   const [scoreThreshold,  setScoreThreshold]  = useState(65);
   const [commissionRate,  setCommissionRate]  = useState(0.0003);
@@ -876,8 +876,8 @@ function BacktestForm() {
                     ))}
                   </div>
                   <p className="text-[9px] mt-2 leading-[1.6]" style={{ color: DIM }}>
-                    全市场过滤后候选股按行业均衡抽样，每行业取上市最早（历史数据最长）的 1 只，
-                    结合同行业最多持仓 1 只约束，确保最终组合覆盖多个行业。
+                    全市场过滤后候选股按行业均衡抽样，每行业优先选取近 3-10 年上市股票
+                    （现代行业格局 + 足够回测历史），结合同行业最多持仓 1 只约束，确保组合行业均衡覆盖。
                   </p>
                 </div>
               )}
@@ -1243,6 +1243,33 @@ function BacktestForm() {
                 </span>
               </span>
             </div>
+
+            {/* 策略表现严重警告 */}
+            {(result.annualReturn < -10 || result.strategyScore < 40) && (
+              <div className="p-4 rounded-2xl flex items-start gap-3"
+                style={{ background: "rgba(239,68,68,0.10)", border: "2px solid rgba(239,68,68,0.45)" }}>
+                <AlertTriangle size={20} color={R} className="flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-black text-[14px] mb-1" style={{ color: R }}>
+                    ⚠️ 策略回测表现较差，不建议实盘/模拟盘
+                  </p>
+                  <p className="text-[11px] leading-[1.8]" style={{ color: "#FCA5A5" }}>
+                    年化收益 <span className="font-bold">{result.annualReturn.toFixed(1)}%</span>，
+                    策略评分 <span className="font-bold">{result.strategyScore}</span>/100，
+                    止损触发 <span className="font-bold">
+                      {result.trades.filter((t) => t.reason === "stop_loss").length}
+                    </span> 次。
+                    <br />
+                    <span className="font-bold">
+                      当前参数在回测时间段内系统性亏损，请勿接入实盘或模拟盘。
+                    </span>
+                    <br />
+                    建议：① 切换「大盘龙头股票池」；② 改为「每月调仓」减少摩擦；
+                    ③ 评分阈值提高至 65+；④ 参考「参数对比」找到更优配置。
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* 总收益 + 评分 */}
             <div className="grid grid-cols-2 gap-3">

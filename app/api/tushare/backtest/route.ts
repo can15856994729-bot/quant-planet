@@ -54,12 +54,22 @@ function buildFullMarketPool(all: TushareRecord[]): {
   });
   const afterFilter = filtered.length;
 
-  // 按 list_date 升序排序（最早上市在前 → 历史数据最长）
-  const sorted = [...filtered].sort((a, b) =>
-    String(a.list_date ?? "").localeCompare(String(b.list_date ?? ""))
-  );
+  // 分层排序：优先选 3-10 年历史股票（现代行业格局 + 足够回测数据）
+  // 避免"最早上市 = 90 年代传统行业老股"的选股偏差导致回测系统性亏损
+  const sweetSpotFrom = daysAgoStr(10 * 365); // 10 年前（不超过 10 年 = 现代公司）
+  const sweetSpotTo   = daysAgoStr(3  * 365); // 3 年前（至少有 3 年历史数据）
+  const sorted = [...filtered].sort((a, b) => {
+    const dA = String(a.list_date ?? "");
+    const dB = String(b.list_date ?? "");
+    // 甜蜜区间 tier 0：上市 3-10 年（首选）；其他为 tier 1
+    const tA = (dA >= sweetSpotFrom && dA <= sweetSpotTo) ? 0 : 1;
+    const tB = (dB >= sweetSpotFrom && dB <= sweetSpotTo) ? 0 : 1;
+    if (tA !== tB) return tA - tB;
+    // 同层内按 ts_code 排序（行业内多样化，避免纯时间顺序导致重复选到相邻股）
+    return String(a.ts_code ?? "").localeCompare(String(b.ts_code ?? ""));
+  });
 
-  // 每行业取最早上市的 1 只
+  // 每行业取排序后的第一只（优先甜蜜区间股票）
   const byIndustry = new Map<string, TushareRecord>();
   for (const s of sorted) {
     const ind = (String(s.industry ?? "").trim()) || "其他";

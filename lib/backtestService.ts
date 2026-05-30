@@ -192,6 +192,8 @@ function buildDiagnostics(
   feeImpact:            number,
   maxConsecutiveLosses: number,
   tradingDays:          number,
+  stopLossCount:        number = 0,
+  takeProfitCount:      number = 0,
 ): Diagnostic[] {
   const diag: Diagnostic[] = [];
   const years = tradingDays / 252;
@@ -207,6 +209,15 @@ function buildDiagnostics(
     diag.push({ type: "warning", message: `累计手续费占初始资金 ${feeImpact.toFixed(1)}%，交易成本较高` });
   if (maxConsecutiveLosses > 5)
     diag.push({ type: "warning", message: `最大连续亏损 ${maxConsecutiveLosses} 次 — 策略存在较长回撤期，需注意持仓心理` });
+  if (stopLossCount > 0) {
+    const slPct = totalTrades > 0 ? ((stopLossCount / totalTrades) * 100).toFixed(0) : "0";
+    if (stopLossCount > 10)
+      diag.push({ type: "warning", message: `止损触发 ${stopLossCount} 次（占总交易 ${slPct}%）— 市场震荡时止损频繁；建议改用月度调仓或放宽止损比例` });
+    else
+      diag.push({ type: "info", message: `止损触发 ${stopLossCount} 次（占总交易 ${slPct}%）` });
+  }
+  if (takeProfitCount > 0)
+    diag.push({ type: "info", message: `止盈触发 ${takeProfitCount} 次 — 部分头寸提前锁定利润` });
 
   if (sharpeRatio > 1.5)
     diag.push({ type: "info", message: `夏普比率 ${sharpeRatio.toFixed(2)} 优秀，风险调整收益良好` });
@@ -484,11 +495,14 @@ export async function runBacktest(
     else curLosses = 0;
   }
 
-  const feeImpact     = +((totalFees / params.initialCapital) * 100).toFixed(2);
-  const strategyScore = computeStrategyScore(annualReturn, maxDD, sharpeRatio, winRate, profitFactor);
+  const feeImpact       = +((totalFees / params.initialCapital) * 100).toFixed(2);
+  const strategyScore   = computeStrategyScore(annualReturn, maxDD, sharpeRatio, winRate, profitFactor);
+  const stopLossCount   = trades.filter((t) => t.reason === "stop_loss").length;
+  const takeProfitCount = trades.filter((t) => t.reason === "take_profit").length;
   const diagnostics   = buildDiagnostics(
     annualReturn, maxDD, winRate, sharpeRatio, profitFactor,
     trades.length, feeImpact, maxConsLosses, allDates.length,
+    stopLossCount, takeProfitCount,
   );
 
   // ── 推断实际持仓过的股票（BUY 过的） ───────────────────────────────

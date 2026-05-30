@@ -50,11 +50,18 @@ export async function GET() {
   }
   const industries = industryMap.size;
 
-  // ── 回测样本估算：每行业取 1 只最早上市股票 ───────────────────────
+  // ── 回测样本估算：与 backtest route 保持一致（优先 3-10 年历史股票）─
   const poolByIndustry = new Map<string, true>();
-  const sorted = [...filtered].sort((a, b) =>
-    String(a.list_date ?? "").localeCompare(String(b.list_date ?? ""))
-  );
+  const sweetSpotFrom = daysAgoStr(10 * 365);
+  const sweetSpotTo   = daysAgoStr(3  * 365);
+  const sorted = [...filtered].sort((a, b) => {
+    const dA = String(a.list_date ?? "");
+    const dB = String(b.list_date ?? "");
+    const tA = (dA >= sweetSpotFrom && dA <= sweetSpotTo) ? 0 : 1;
+    const tB = (dB >= sweetSpotFrom && dB <= sweetSpotTo) ? 0 : 1;
+    if (tA !== tB) return tA - tB;
+    return String(a.ts_code ?? "").localeCompare(String(b.ts_code ?? ""));
+  });
   for (const s of sorted) {
     const ind = (String(s.industry ?? "").trim()) || "其他";
     if (!poolByIndustry.has(ind)) poolByIndustry.set(ind, true);
