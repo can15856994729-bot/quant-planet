@@ -45,7 +45,7 @@ export default function ProfilePage() {
       items: [
         { icon: Shield,   label: "风险偏好设置", href: "/disclaimer", desc: isLoggedIn ? `当前：${user?.riskLevel}型` : "未设置" },
         { icon: Info,     label: "风险免责声明", href: "/disclaimer", desc: "重要合规说明" },
-        { icon: Settings, label: "应用设置",     href: "#",           desc: "通知/主题/语言" },
+        { icon: Settings, label: "应用设置",     href: "/settings",   desc: "通知/主题/语言" },
       ],
     },
   ];

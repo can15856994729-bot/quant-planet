@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import BottomNav from "@/components/layout/BottomNav";
 import PwaRegister from "@/components/PwaRegister";
+import ToastContainer from "@/components/ui/ToastContainer";
 
 export const metadata: Metadata = {
   title: "量化星球 QuantPlanet",
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>{children}</main>
         <BottomNav />
         <PwaRegister />
+        <ToastContainer />
       </body>
     </html>
   );
