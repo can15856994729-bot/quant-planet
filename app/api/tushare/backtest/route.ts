@@ -4,13 +4,18 @@
  * 运行 A股多因子策略回测（服务端，Tushare 历史数据）。
  *
  * Body (JSON):
- *   startDate      YYYYMMDD，如 "20220101"
- *   endDate        YYYYMMDD，如 "20241231"
- *   initialCapital 起始资金，默认 100000
- *   commissionRate 手续费率，默认 0.0003
- *   maxPositions   最多持仓股数，默认 5
- *
- * 若 Tushare Token 未配置或权限不足，返回明确错误，不返回假数据。
+ *   startDate        YYYYMMDD
+ *   endDate          YYYYMMDD
+ *   initialCapital   起始资金（默认 100000）
+ *   commissionRate   手续费率（默认 0.0003）
+ *   stampDutyRate    印花税率（默认 0.001）
+ *   slippageRate     滑点（默认 0.0005）
+ *   maxPositions     最大持仓只数（默认 10，上限 20）
+ *   rebalanceFreq    "weekly" | "monthly"（默认 "weekly"）
+ *   maxSingleWeight  单股最大仓位（默认 0.20）
+ *   stopLossRate     止损比例（默认 0.08，0 = 不止损）
+ *   takeProfitRate   止盈比例（默认 0.30，0 = 不止盈）
+ *   scoreThreshold   最低买入评分（默认 65）
  */
 import { NextRequest, NextResponse } from "next/server";
 import { runBacktest }               from "@/lib/backtestService";
@@ -35,20 +40,26 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* use defaults */ }
 
-  const startDate      = String(body.startDate       ?? "20220101");
-  const endDate        = String(body.endDate         ?? "20241231");
-  const initialCapital = Number(body.initialCapital  ?? 100000);
-  const commissionRate = Number(body.commissionRate  ?? 0.0003);
-  const stampDutyRate  = Number(body.stampDutyRate   ?? 0.001);
-  const slippageRate   = Number(body.slippageRate    ?? 0.0005);
-  const maxPositions   = Math.min(Number(body.maxPositions ?? 5), 10);
+  // ── 解析参数 ─────────────────────────────────────────────────────
+  const startDate  = String(body.startDate      ?? "20230101");
+  const endDate    = String(body.endDate        ?? "20251231");
 
-  // Build ts_code list and name map from strategy pool
-  const tsCodes = STRATEGY_POOL.map(s => symbolToTsCode(s.symbol));
+  const initialCapital = Math.max(10000, Number(body.initialCapital ?? 100000));
+  const commissionRate = Math.min(0.01,  Math.max(0.0001, Number(body.commissionRate ?? 0.0003)));
+  const stampDutyRate  = 0.001;     // 固定印花税，不可调
+  const slippageRate   = 0.0005;    // 固定滑点
+
+  const maxPositions    = Math.min(20, Math.max(1,   Number(body.maxPositions    ?? 10)));
+  const rebalanceFreq   = String(body.rebalanceFreq ?? "weekly") === "monthly" ? "monthly" : "weekly" as const;
+  const maxSingleWeight = Math.min(1,   Math.max(0.05, Number(body.maxSingleWeight ?? 0.20)));
+  const stopLossRate    = Math.min(0.5, Math.max(0,    Number(body.stopLossRate    ?? 0.08)));
+  const takeProfitRate  = Math.min(1,   Math.max(0,    Number(body.takeProfitRate  ?? 0.30)));
+  const scoreThreshold  = Math.min(90,  Math.max(50,   Number(body.scoreThreshold  ?? 65)));
+
+  // ── 构建股票池 ────────────────────────────────────────────────────
+  const tsCodes: string[] = STRATEGY_POOL.map((s) => symbolToTsCode(s.symbol));
   const names: Record<string, string> = {};
-  for (const s of STRATEGY_POOL) {
-    names[symbolToTsCode(s.symbol)] = s.name;
-  }
+  for (const s of STRATEGY_POOL) names[symbolToTsCode(s.symbol)] = s.name;
 
   const result = await runBacktest({
     tsCodes,
@@ -60,6 +71,11 @@ export async function POST(req: NextRequest) {
     stampDutyRate,
     slippageRate,
     maxPositions,
+    rebalanceFreq,
+    maxSingleWeight,
+    stopLossRate,
+    takeProfitRate,
+    scoreThreshold,
   });
 
   return NextResponse.json(result);
