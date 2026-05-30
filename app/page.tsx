@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers } from "lucide-react";
-import { MOCK_STOCKS, MOCK_STRATEGIES, DEFAULT_WATCHLIST } from "@/lib/mock-data";
+import { MOCK_STRATEGIES } from "@/lib/mock-data";
 import HomeStrategySignalCard from "@/components/ui/HomeStrategySignalCard";
 import HomeSimAccountCard from "@/components/ui/HomeSimAccountCard";
 import { formatPct, formatPrice, pnlColor, signalTypeLabel, signalTypeColor, marketColor, formatMarket, riskColor, marketToCurrency } from "@/lib/utils";
@@ -11,7 +11,6 @@ import HomeSignals from "@/components/ui/HomeSignals";
 import SignalBellBadge from "@/components/ui/SignalBellBadge";
 
 export default function HomePage() {
-  const watchlistStocks = MOCK_STOCKS.filter((s) => DEFAULT_WATCHLIST.includes(s.symbol)).slice(0, 4);
   const risk = getRiskReport();
   const riskColor_ = riskLevelColor(risk.level);
 

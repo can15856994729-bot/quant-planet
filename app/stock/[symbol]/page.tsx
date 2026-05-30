@@ -7,6 +7,7 @@ import { getStockBySymbol } from "@/lib/stockService";
 import { formatPrice } from "@/lib/utils";
 import StockDetailClient from "./StockDetailClient";
 import StockPriceCard from "./StockPriceCard";
+import WatchlistButton from "@/components/ui/WatchlistButton";
 import type { Stock } from "@/types";
 
 // 预渲染热门股票；其余 symbol 走 SSR（dynamicParams = true 默认值）
@@ -138,7 +139,25 @@ export default async function StockDetailPage({
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
-      <PageHeader title={name} />
+      <PageHeader
+        title={name}
+        right={
+          <WatchlistButton
+            symbol={stock.symbol}
+            name={name}
+            market={market}
+            exchange={
+              stock.market === "A"
+                ? (stock.symbol.startsWith("6") ? "SH" : stock.symbol.startsWith("8") || stock.symbol.startsWith("4") ? "BJ" : "SZ")
+                : market === "HK"
+                ? "HKEX"
+                : "NASDAQ"
+            }
+            industry={stock.industry ?? ""}
+            currency={currency}
+          />
+        }
+      />
 
       <div className="px-4 pt-4 space-y-4 pb-8">
 
