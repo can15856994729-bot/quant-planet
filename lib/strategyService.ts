@@ -341,14 +341,16 @@ export async function runAShareMultiFactorStrategy(): Promise<StrategyResult> {
     riskLevel,
     dataNote: [
       "趋势/动量/量价/风险因子：东方财富日K线（前复权）✅",
-      "质量因子（ROE/利润增长/现金流）：暂缺财务接口，中性处理 ⚠️",
-      "估值因子：PE/PB 来自东方财富实时行情 ✅，历史分位暂缺 ⚠️",
+      "质量因子（ROE/利润增长/现金流）：Tushare income 近期暂无季报数据，中性处理 ⚠️",
+      "估值因子：PE/PB 来自东方财富实时行情 ✅，Tushare daily_basic PE/PB/市值/换手率 ✅",
       `市场择时：${
         timing.dataOk
-          ? `✅ 沪深300 MA60 实时计算（数据来源：${"dataSource" in timing ? timing.dataSource === "tushare" ? "Tushare" : "东方财富" : "东方财富"}）`
+          ? `✅ 沪深300 MA60（来源：${"dataSource" in timing ? timing.dataSource === "tushare" ? "Tushare index_daily" : "东方财富" : "东方财富"}）`
           : "⚠️ " + timing.note
       }`,
-      hasTushareToken() ? "Tushare Token ✅ 已配置" : "⚠️ Tushare Token 未配置，部分因子数据不可用",
+      hasTushareToken()
+        ? "Tushare stock_basic/daily/daily_basic/index_daily/trade_cal ✅ 已激活"
+        : "⚠️ Tushare Token 未配置，部分因子数据不可用",
     ].join("；"),
   };
 }

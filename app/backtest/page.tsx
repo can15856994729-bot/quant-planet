@@ -124,7 +124,7 @@ function BacktestForm() {
     if (!isMultiFactor) return;
     fetch("/api/tushare/status")
       .then(r => r.json())
-      .then(d => setTushareOk(!!d.ok))
+      .then(d => setTushareOk(d.capabilities?.daily?.status === "ok"))
       .catch(() => setTushareOk(false));
   }, [isMultiFactor]);
 
