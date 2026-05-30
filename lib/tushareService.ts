@@ -102,13 +102,19 @@ export async function callTushare(
       return { ok: false, error: "Tushare 返回非 JSON 响应" };
     }
 
-    // code 2002 = token 错误；code 2000x = 权限不足
+    // code 2002 = token 无效
     if (json.code === 2002) return { ok: false, error: "TUSHARE_TOKEN 无效或已过期", tokenMissing: true };
-    if (json.code !== 0)   {
-      const perm = json.code >= 2001 && json.code <= 2009;
+
+    if (json.code !== 0) {
+      const msg = json.msg ?? "";
+      // Tushare 权限错误特征：code 范围 OR 消息含关键词（最可靠）
+      const PERM_KEYWORDS = ["权限", "没有接口", "积分不足", "permission", "access denied", "not authorized"];
+      const permByMsg  = PERM_KEYWORDS.some(k => msg.toLowerCase().includes(k.toLowerCase()));
+      const permByCode = json.code >= 2001 && json.code <= 2030;
+      const perm = permByMsg || permByCode;
       return {
         ok: false,
-        error: json.msg || `Tushare error code=${json.code}`,
+        error: msg || `Tushare error code=${json.code}`,
         permissionDenied: perm,
       };
     }
