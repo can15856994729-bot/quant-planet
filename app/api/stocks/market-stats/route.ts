@@ -2,6 +2,7 @@ import { NextResponse }                          from "next/server";
 import { listEMStocks, listEMHKStocks, listEMUSStocks } from "@/lib/eastMoneySearch";
 import { hasAVKey }                              from "@/lib/alphaVantage";
 import { LOCAL_STOCK_COUNTS }                    from "@/lib/stockService";
+import { getAStockBasic, hasTushareToken }       from "@/lib/tushareService";
 
 /**
  * GET /api/stocks/market-stats
@@ -48,25 +49,38 @@ export async function GET() {
   const now = new Date().toISOString();
   const avKey = hasAVKey();
 
-  // ── 并发拉取 A股 + 港股 + 美股总数（各取 1 条，只关心 total 字段）──
-  const [aResult, hkResult, usResult] = await Promise.allSettled([
+  // ── 并发拉取各市场数量 ───────────────────────────────────────────
+  // A股：优先 Tushare stock_basic（全量精确），降级东方财富
+  const [tushareAResult, aResult, hkResult, usResult] = await Promise.allSettled([
+    hasTushareToken() ? getAStockBasic("L") : Promise.resolve(null),
     listEMStocks(1, 1, "marketCap", true),
     listEMHKStocks(1, 1, "marketCap", true),
     listEMUSStocks(1, 1, "marketCap", true),
   ]);
 
-  const aCount   = aResult.status  === "fulfilled" ? aResult.value.total  : 0;
-  const hkCount  = hkResult.status === "fulfilled" ? hkResult.value.total : 0;
+  // Tushare A股数量（最权威）
+  const tushareACount =
+    tushareAResult.status === "fulfilled" &&
+    tushareAResult.value  !== null        &&
+    tushareAResult.value.ok
+      ? tushareAResult.value.records.length
+      : 0;
+
+  const aEMCount  = aResult.status  === "fulfilled" ? aResult.value.total  : 0;
+  const hkCount   = hkResult.status === "fulfilled" ? hkResult.value.total : 0;
   const usEMCount = usResult.status === "fulfilled" ? usResult.value.total : 0;
 
-  // ── 失败时 fallback 到本地已知数量 ──────────────────────────────
-  const aFinal  = aCount    > 0 ? aCount    : LOCAL_STOCK_COUNTS.A;
+  // ── A股：Tushare > 东方财富 > 本地 ─────────────────────────────
+  const aFinal  = tushareACount > 0 ? tushareACount
+                : aEMCount     > 0 ? aEMCount
+                : LOCAL_STOCK_COUNTS.A;
   const hkFinal = hkCount   > 0 ? hkCount   : LOCAL_STOCK_COUNTS.HK;
   const usFinal = usEMCount > 0 ? usEMCount : LOCAL_STOCK_COUNTS.US;
 
-  const aSrc  = aCount    > 0;
-  const hkSrc = hkCount   > 0;
-  const usSrc = usEMCount > 0;
+  const aSrc    = tushareACount > 0 || aEMCount > 0;
+  const aTushare = tushareACount > 0;
+  const hkSrc   = hkCount   > 0;
+  const usSrc   = usEMCount > 0;
 
   const markets: MarketStat[] = [
     {
@@ -74,15 +88,17 @@ export async function GET() {
       name:          "A股",
       count:         aFinal,
       countLabel:    aSrc ? fmt(aFinal) : `≈${fmt(aFinal)}（本地估算）`,
-      source:        aSrc ? "EastMoney" : "local",
-      sourceLabel:   aSrc ? "东方财富接口" : "本地股票池",
+      source:        aTushare ? "Tushare" : aSrc ? "EastMoney" : "local",
+      sourceLabel:   aTushare ? "Tushare stock_basic" : aSrc ? "东方财富接口" : "本地股票池",
       coverage:      aSrc ? "full"    : "partial",
-      coverageLabel: aSrc ? "全市场" : "部分接入",
+      coverageLabel: aSrc ? "沪深北全市场" : "部分接入",
       realtime:      aSrc,
       searchable:    true,
-      note:          aSrc
+      note:          aTushare
+        ? `Tushare stock_basic，沪深北 ${aFinal.toLocaleString("zh-CN")} 只上市A股（实时行情仍由东方财富提供）`
+        : aSrc
         ? "沪深北全市场，支持名称/拼音/代码实时搜索"
-        : `当前使用本地 ${LOCAL_STOCK_COUNTS.A} 只 A 股，东方财富接口暂时不可用`,
+        : `当前使用本地 ${LOCAL_STOCK_COUNTS.A} 只 A 股，接口暂时不可用`,
     },
     {
       market:        "HK",
