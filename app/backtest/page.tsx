@@ -8,6 +8,7 @@ import {
 import {
   BarChart3, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Lock,
   Save, Play, RefreshCw, TrendingUp, TrendingDown, Activity, GitCompare, ArrowRight,
+  Layers, Globe, Star, Users,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStrategyConfigStore } from "@/lib/strategyConfigStore";
@@ -31,6 +32,14 @@ interface BacktestTrade {
   reason: "rebalance" | "stop_loss" | "take_profit" | "final";
   price: number; shares: number; amount: number; fee: number; pnl: number;
 }
+interface PoolStats {
+  poolMode:          string;
+  totalListed:       number;
+  afterFilter:       number;
+  inPool:            number;
+  industriesCovered: number;
+  onePerIndustry:    boolean;
+}
 interface BacktestResult {
   ok: true;
   totalReturn: number; annualReturn: number; maxDrawdown: number;
@@ -44,16 +53,33 @@ interface BacktestResult {
   initialCapital: number; finalCapital: number;
   startDate: string; endDate: string;
   source: "tushare"; note: string;
+  poolStats?: PoolStats;
+  heldStocks?: { tsCode: string; name: string; industry: string }[];
+}
+
+// ── Pool stats（从 /api/tushare/pool-stats 获取）───────────────────────
+interface PoolStatsResponse {
+  ok: boolean;
+  totalListed?: number;
+  afterFilter?: number;
+  industries?: number;
+  sampleSize?: number;
+  error?: string;
+  tokenMissing?: boolean;
 }
 
 // ── 回测请求 body ──────────────────────────────────────────────────────
 interface BacktestBody {
+  poolMode: "full_market" | "large_cap";
+  onePerIndustry: boolean;
   startDate: string; endDate: string; initialCapital: number;
   commissionRate: number; maxPositions: number;
   rebalanceFreq: "weekly" | "monthly";
   maxSingleWeight: number; stopLossRate: number;
   takeProfitRate: number; scoreThreshold: number;
 }
+
+type PoolMode = "full_market" | "large_cap";
 
 // ── 日期辅助 ─────────────────────────────────────────────────────────
 function todayYMD() { return new Date().toISOString().slice(0,10).replace(/-/g,""); }
@@ -364,6 +390,12 @@ function BacktestForm() {
   const [commissionRate,  setCommissionRate]  = useState(0.0003);
   const [showAdvanced,    setShowAdvanced]    = useState(false);
 
+  // ── 股票池配置 ──────────────────────────────────────────────────
+  const [poolMode,          setPoolMode]          = useState<PoolMode>("full_market");
+  const [onePerIndustry,    setOnePerIndustry]    = useState(true);
+  const [poolStatsData,     setPoolStatsData]     = useState<PoolStatsResponse | null>(null);
+  const [poolStatsLoading,  setPoolStatsLoading]  = useState(true);
+
   // ── Tushare / run state ─────────────────────────────────────────
   const [tushareOk,   setTushareOk]   = useState<boolean | null>(null);
   const [running,     setRunning]     = useState(false);
@@ -389,6 +421,15 @@ function BacktestForm() {
       .catch(() => setTushareOk(false));
   }, []);
 
+  // ── 股票池统计（全市场数量）─────────────────────────────────────
+  useEffect(() => {
+    setPoolStatsLoading(true);
+    fetch("/api/tushare/pool-stats")
+      .then((r) => r.json())
+      .then((d: PoolStatsResponse) => { setPoolStatsData(d); setPoolStatsLoading(false); })
+      .catch(() => { setPoolStatsData({ ok: false, error: "网络错误" }); setPoolStatsLoading(false); });
+  }, []);
+
   // ── Computed dates ───────────────────────────────────────────────
   const { startDate, endDate } = useMemo(() => {
     if (dateRange === "自定义") {
@@ -401,6 +442,7 @@ function BacktestForm() {
   // ── Build request body ───────────────────────────────────────────
   function buildBody(overrides?: Partial<BacktestBody>): BacktestBody {
     return {
+      poolMode, onePerIndustry,
       startDate, endDate, initialCapital: capital,
       commissionRate, maxPositions, rebalanceFreq,
       maxSingleWeight: maxWeight,
@@ -481,7 +523,7 @@ function BacktestForm() {
     if (!result) return;
     const config: SavedStrategyConfig = {
       id:              Date.now().toString(),
-      name:            `A股多因子 · ${new Date().toLocaleDateString("zh-CN")}`,
+      name:            `${poolMode === "full_market" ? "全市场轮动" : "大盘龙头"} · ${new Date().toLocaleDateString("zh-CN")}`,
       savedAt:         new Date().toISOString(),
       maxPositions, rebalanceFreq,
       maxSingleWeight: maxWeight,
@@ -612,13 +654,134 @@ function BacktestForm() {
           </div>
         </div>
 
-        {/* ── ③ 股票池（固定显示）─────────────────────────────────────── */}
-        <div className="p-3 rounded-xl flex items-center gap-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-          <BarChart3 size={16} color={B} />
-          <div>
-            <p className="text-[12px] font-bold" style={{ color: "#F8FAFC" }}>A股多因子策略池（20只）</p>
-            <p className="text-[10px] mt-0.5" style={{ color: DIM }}>贵州茅台、比亚迪、宁德时代、招商银行等大中盘蓝筹</p>
+        {/* ── ③ 股票池选择 ──────────────────────────────────────────── */}
+        <div>
+          <label className="text-[12px] font-bold mb-2 block" style={{ color: MID }}>③ 股票池</label>
+
+          {/* 池模式选择 */}
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button onClick={() => setPoolMode("full_market")}
+              className="flex items-center gap-2 p-3 rounded-xl"
+              style={{
+                background: poolMode === "full_market" ? "rgba(0,229,168,0.12)" : CARD,
+                border: `1px solid ${poolMode === "full_market" ? G : BORDER}`,
+              }}>
+              <Globe size={14} color={poolMode === "full_market" ? G : DIM} />
+              <div className="text-left">
+                <p className="text-[12px] font-bold" style={{ color: poolMode === "full_market" ? G : "#F8FAFC" }}>
+                  Tushare A股全市场
+                </p>
+                <p className="text-[9px] mt-0.5" style={{ color: DIM }}>默认 · 动态构建</p>
+              </div>
+            </button>
+            <button onClick={() => setPoolMode("large_cap")}
+              className="flex items-center gap-2 p-3 rounded-xl"
+              style={{
+                background: poolMode === "large_cap" ? "rgba(59,130,246,0.12)" : CARD,
+                border: `1px solid ${poolMode === "large_cap" ? B : BORDER}`,
+              }}>
+              <Star size={14} color={poolMode === "large_cap" ? B : DIM} />
+              <div className="text-left">
+                <p className="text-[12px] font-bold" style={{ color: poolMode === "large_cap" ? B : "#F8FAFC" }}>
+                  大盘龙头股票池
+                </p>
+                <p className="text-[9px] mt-0.5" style={{ color: DIM }}>20只 · 蓝筹固定池</p>
+              </div>
+            </button>
           </div>
+
+          {/* 股票池统计信息 */}
+          {poolMode === "full_market" && (
+            <div className="p-3 rounded-xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              {poolStatsLoading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full border-2 animate-spin flex-shrink-0"
+                    style={{ borderColor: MID, borderTopColor: "transparent" }} />
+                  <p className="text-[11px]" style={{ color: MID }}>正在加载 Tushare A股股票池…</p>
+                </div>
+              ) : !poolStatsData?.ok ? (
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={13} color={R} className="flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[11px] font-bold" style={{ color: R }}>
+                      {poolStatsData?.tokenMissing ? "Tushare Token 未配置，无法加载全市场股票池" : `股票池加载失败：${poolStatsData?.error ?? "未知错误"}`}
+                    </p>
+                    <p className="text-[10px] mt-0.5" style={{ color: DIM }}>
+                      Tushare 加载失败时不会使用默认 20 只替代，请配置 Token 后重新部署
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Globe size={12} color={G} />
+                    <p className="text-[11px] font-bold" style={{ color: G }}>Tushare A股全市场股票池</p>
+                    {poolStatsData.afterFilter && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-bold ml-1"
+                        style={{ background: "rgba(0,229,168,0.12)", color: G }}>
+                        动态
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: "A股全市场", value: poolStatsData.totalListed?.toLocaleString() ?? "—", unit: "只" },
+                      { label: "过滤后候选", value: poolStatsData.afterFilter?.toLocaleString() ?? "—", unit: "只",
+                        note: "排除ST/新股" },
+                      { label: "参与评分", value: poolStatsData.sampleSize?.toString() ?? "—", unit: "只",
+                        note: "按行业抽样" },
+                      { label: "行业覆盖", value: poolStatsData.industries?.toString() ?? "—", unit: "个" },
+                    ].map(({ label, value, unit, note }) => (
+                      <div key={label} className="text-center p-1.5 rounded-lg"
+                        style={{ background: "#0a1628" }}>
+                        <p className="font-black text-[13px] num" style={{ color: G }}>{value}</p>
+                        <p className="text-[9px]" style={{ color: DIM }}>{unit}</p>
+                        <p className="text-[9px]" style={{ color: "#1a2f50" }}>{label}</p>
+                        {note && <p className="text-[8px]" style={{ color: "#1a2f50" }}>{note}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[9px] mt-2 leading-[1.6]" style={{ color: DIM }}>
+                    全市场过滤后候选股按行业均衡抽样，每行业取上市最早（历史数据最长）的 1 只，
+                    结合同行业最多持仓 1 只约束，确保最终组合覆盖多个行业。
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {poolMode === "large_cap" && (
+            <div className="p-3 rounded-xl flex items-start gap-2"
+              style={{ background: CARD, border: `1px solid ${B}33` }}>
+              <Star size={13} color={B} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[11px] font-bold" style={{ color: B }}>大盘龙头股票池（20只）</p>
+                <p className="text-[10px] mt-0.5" style={{ color: DIM }}>
+                  茅台、平安、比亚迪、宁德时代、美的、招商银行等代表性蓝筹 · 固定池 · 速度快
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* 同行业最多持仓 1 只（仅全市场模式） */}
+          {poolMode === "full_market" && (
+            <div className="flex items-center justify-between mt-2 px-3 py-2.5 rounded-xl"
+              style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              <div className="flex items-center gap-2">
+                <Users size={13} color={onePerIndustry ? G : DIM} />
+                <div>
+                  <p className="text-[11px] font-bold" style={{ color: "#F8FAFC" }}>同行业最多持仓 1 只</p>
+                  <p className="text-[9px] mt-0.5" style={{ color: DIM }}>同行业内只保留综合评分最高的一只</p>
+                </div>
+              </div>
+              <button onClick={() => setOnePerIndustry(!onePerIndustry)}
+                className="w-11 h-6 rounded-full relative flex-shrink-0"
+                style={{ background: onePerIndustry ? G : BORDER }}>
+                <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 transition-all"
+                  style={{ left: onePerIndustry ? "auto" : "2px", right: onePerIndustry ? "2px" : "auto" }} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── ④ 高级参数（可折叠）────────────────────────────────────── */}
@@ -759,9 +922,11 @@ function BacktestForm() {
         <div className="px-3 py-2.5 rounded-xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {[
+              { k: "股票池", v: poolMode === "full_market" ? `全市场 ${poolStatsData?.ok ? `${poolStatsData.afterFilter?.toLocaleString()}只` : "…"}` : "大盘龙头 20只" },
               { k: "时间", v: `${fmtDate(startDate)} ~ ${fmtDate(endDate)}` },
               { k: "资金", v: `¥${fmtMoney(capital)}` },
               { k: "持仓", v: `${maxPositions}只` },
+              { k: "行业约束", v: poolMode === "full_market" && onePerIndustry ? "每行业≤1只" : "不限" },
               { k: "调仓", v: rebalanceFreq === "weekly" ? "每周" : "每月" },
               { k: "止损", v: stopLoss > 0 ? `-${(stopLoss*100).toFixed(0)}%` : "关闭" },
               { k: "止盈", v: takeProfit > 0 ? `+${(takeProfit*100).toFixed(0)}%` : "关闭" },
@@ -961,6 +1126,55 @@ function BacktestForm() {
                 sub={`占初始资金 ${result.feeImpact.toFixed(1)}%`}
                 color={result.feeImpact > 5 ? R : MID} />
             </div>
+
+            {/* 股票池统计（全市场模式显示）*/}
+            {result.poolStats && (
+              <div className="p-3 rounded-xl space-y-2"
+                style={{ background: "rgba(0,229,168,0.04)", border: "1px solid rgba(0,229,168,0.15)" }}>
+                <div className="flex items-center gap-1.5">
+                  <Globe size={12} color={G} />
+                  <p className="text-[11px] font-bold" style={{ color: G }}>
+                    {result.poolStats.poolMode === "full_market" ? "全市场股票池" : "大盘龙头股票池"} · 本次回测统计
+                  </p>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: "A股全市场", value: result.poolStats.totalListed.toLocaleString(), unit: "只" },
+                    { label: "过滤后候选", value: result.poolStats.afterFilter.toLocaleString(), unit: "只" },
+                    { label: "参与评分", value: result.poolStats.inPool.toString(), unit: "只" },
+                    { label: "行业覆盖", value: result.poolStats.industriesCovered.toString(), unit: "个" },
+                  ].map(({ label, value, unit }) => (
+                    <div key={label} className="text-center p-1.5 rounded-lg" style={{ background: "#0a1628" }}>
+                      <p className="font-black text-[12px] num" style={{ color: G }}>{value}</p>
+                      <p className="text-[9px]" style={{ color: DIM }}>{unit} {label}</p>
+                    </div>
+                  ))}
+                </div>
+                {result.poolStats.onePerIndustry && (
+                  <p className="text-[10px]" style={{ color: DIM }}>
+                    ✓ 同行业最多持仓 1 只约束已启用 · 最终持仓 {maxPositions} 只来自 {maxPositions} 个不同行业
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 实际持仓过的股票 */}
+            {result.heldStocks && result.heldStocks.length > 0 && (
+              <div>
+                <p className="text-[11px] font-bold mb-2" style={{ color: MID }}>
+                  实际入选股票（共 {result.heldStocks.length} 只，曾进入持仓）
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.heldStocks.map(({ tsCode, name, industry }) => (
+                    <div key={tsCode} className="px-2 py-1 rounded-lg"
+                      style={{ background: "#0a1628", border: `1px solid ${BORDER}` }}>
+                      <p className="text-[10px] font-bold" style={{ color: "#F8FAFC" }}>{name}</p>
+                      <p className="text-[8px]" style={{ color: DIM }}>{industry}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 诊断 */}
             <DiagnosticsPanel diags={result.diagnostics} />

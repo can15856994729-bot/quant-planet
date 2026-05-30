@@ -13,10 +13,10 @@ import { calculateFactorScores } from "./factorService";
 import type { KLineBar, QuoteData } from "./factorService";
 import { getIndexDaily, hasTushareToken, daysAgoStr, todayStr } from "./tushareService";
 
-// ── Strategy stock pool ──────────────────────────────────────────
-// 20 representative large/mid-cap A-share stocks.
-// Signals are computed from real K-line data — not hardcoded.
-export const STRATEGY_POOL = [
+// ── 大盘龙头股票池（20只，可选项）──────────────────────────────────
+// 作为"大盘龙头"选项使用，不再作为回测默认池。
+// 回测默认池为 Tushare A股全市场动态构建。
+export const LARGE_CAP_POOL = [
   { symbol: "600519", name: "贵州茅台",  industry: "白酒",     secid: "1.600519" },
   { symbol: "601318", name: "中国平安",  industry: "保险",     secid: "1.601318" },
   { symbol: "002594", name: "比亚迪",    industry: "新能源车", secid: "0.002594" },
@@ -38,6 +38,9 @@ export const STRATEGY_POOL = [
   { symbol: "600438", name: "通威股份",  industry: "光伏",     secid: "1.600438" },
   { symbol: "601166", name: "兴业银行",  industry: "银行",     secid: "1.601166" },
 ] as const;
+
+/** @deprecated 兼容别名，请使用 LARGE_CAP_POOL */
+export const STRATEGY_POOL = LARGE_CAP_POOL;
 
 // ── Types ────────────────────────────────────────────────────────
 export type SignalAction  = "buy" | "sell" | "watch" | "hold";

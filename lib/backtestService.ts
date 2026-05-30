@@ -30,21 +30,33 @@ import type { KLineBar } from "./factorService";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
+export interface PoolStats {
+  poolMode:           "full_market" | "large_cap" | "custom";
+  totalListed:        number;   // Tushare stock_basic 全市场上市数
+  afterFilter:        number;   // 排除 ST / 新股后
+  inPool:             number;   // 实际参与 K线下载的股票数
+  industriesCovered:  number;   // 行业覆盖数
+  onePerIndustry:     boolean;
+}
+
 export interface BacktestParams {
-  tsCodes:         string[];
-  names:           Record<string, string>;
-  startDate:       string;
-  endDate:         string;
-  initialCapital:  number;
-  commissionRate:  number;       // 如 0.0003
-  stampDutyRate:   number;       // 如 0.001
-  slippageRate:    number;       // 如 0.0005
-  maxPositions:    number;       // 最多持仓只数
-  rebalanceFreq:   "weekly" | "monthly";
-  maxSingleWeight: number;       // 单股最大仓位 0–1，如 0.2 = 20%
-  stopLossRate:    number;       // 止损比例 0–1，0 = 不止损
-  takeProfitRate:  number;       // 止盈比例 0–1，0 = 不止盈
-  scoreThreshold:  number;       // 最低买入评分
+  tsCodes:          string[];
+  names:            Record<string, string>;
+  industries?:      Record<string, string>;  // tsCode → 行业名
+  startDate:        string;
+  endDate:          string;
+  initialCapital:   number;
+  commissionRate:   number;       // 如 0.0003
+  stampDutyRate:    number;       // 如 0.001
+  slippageRate:     number;       // 如 0.0005
+  maxPositions:     number;       // 最多持仓只数
+  rebalanceFreq:    "weekly" | "monthly";
+  maxSingleWeight:  number;       // 单股最大仓位 0–1，如 0.2 = 20%
+  stopLossRate:     number;       // 止损比例 0–1，0 = 不止损
+  takeProfitRate:   number;       // 止盈比例 0–1，0 = 不止盈
+  scoreThreshold:   number;       // 最低买入评分
+  onePerIndustry?:  boolean;      // 同行业最多持仓 1 只
+  poolStats?:       PoolStats;    // 供结果透传
 }
 
 export interface Diagnostic {
@@ -88,6 +100,9 @@ export interface BacktestResult {
   finalCapital:         number;
   source:               "tushare";
   note:                 string;
+  poolStats?:           PoolStats;
+  // 最终实际持仓过的股票（从 trades 中推断）
+  heldStocks?:          { tsCode: string; name: string; industry: string }[];
 }
 
 export type BacktestError = {
@@ -324,7 +339,20 @@ export async function runBacktest(
         if (f.totalScore >= params.scoreThreshold) scores.push({ tsCode, score: f.totalScore });
       }
       scores.sort((a, b) => b.score - a.score);
-      const target = new Set(scores.slice(0, params.maxPositions).map((s) => s.tsCode));
+
+      // ── 同行业最多持仓 1 只 ──────────────────────────────────────
+      let scoresFinal = scores;
+      if (params.onePerIndustry && params.industries) {
+        const pickedIndustries = new Set<string>();
+        scoresFinal = scores.filter(({ tsCode }) => {
+          const ind = params.industries![tsCode] ?? "其他";
+          if (pickedIndustries.has(ind)) return false;
+          pickedIndustries.add(ind);
+          return true;
+        });
+      }
+
+      const target = new Set(scoresFinal.slice(0, params.maxPositions).map((s) => s.tsCode));
 
       // Sell positions not in target (T+1: buyDate < date)
       for (const [tsCode, pos] of holding) {
@@ -463,6 +491,14 @@ export async function runBacktest(
     trades.length, feeImpact, maxConsLosses, allDates.length,
   );
 
+  // ── 推断实际持仓过的股票（BUY 过的） ───────────────────────────────
+  const heldTsCodes = new Set(trades.filter((t) => t.action === "BUY").map((t) => t.tsCode));
+  const heldStocks = [...heldTsCodes].map((tc) => ({
+    tsCode:   tc,
+    name:     params.names[tc]      ?? tc,
+    industry: params.industries?.[tc] ?? "—",
+  }));
+
   return {
     ok:                   true,
     totalReturn,
@@ -485,6 +521,8 @@ export async function runBacktest(
     initialCapital:       params.initialCapital,
     finalCapital:         +finalCapital.toFixed(2),
     source:               "tushare",
+    poolStats:            params.poolStats,
+    heldStocks,
     note: [
       "前复权价格（Tushare adj_factor）",
       "T+1 限制",
@@ -492,6 +530,7 @@ export async function runBacktest(
       "印花税 0.1%（卖出）",
       "滑点 0.05%",
       "涨跌停/停牌过滤",
+      params.onePerIndustry ? "同行业最多持仓 1 只" : "不限行业",
       `止损 ${params.stopLossRate > 0 ? `-${(params.stopLossRate*100).toFixed(0)}%` : "关闭"}`,
       `止盈 ${params.takeProfitRate > 0 ? `+${(params.takeProfitRate*100).toFixed(0)}%` : "关闭"}`,
     ].join(" | "),
