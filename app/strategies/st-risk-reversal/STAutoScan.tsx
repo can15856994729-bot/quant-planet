@@ -71,6 +71,16 @@ interface ScanStockResult {
   dataQuality: number; scoreMode: string;
   riskLevel: "low" | "medium" | "high" | "extreme";
   compositeScore: number;
+  /** 固定值 — 标记本结果由 backtestSingleSTStock 生成，与手动单股回测使用同一引擎 */
+  sourceBacktestMethod: "backtestSingleSTStock";
+  /** 回测时使用的参数快照，用于与手动单股回测对比一致性 */
+  scanParams: {
+    startDate: string; endDate: string;
+    initialCapital: number; positionRatio: number;
+    stopLossRate: number; halfProfitRate: number; fullProfitRate: number;
+    maxHoldDays: number; scoreMode: string; minAmount20d: number;
+    enableT1: boolean; enableLimitFilter: boolean; enableFees: boolean;
+  };
 }
 
 interface FailedStock { name: string; tsCode: string; symbol: string; reason: string; }
@@ -155,24 +165,27 @@ interface ScanCache {
   totalCount: number; results: ScanStockResult[]; failed: FailedStock[];
 }
 const CACHE_TTL = 24 * 3600 * 1000;
-function cacheKey(dr: DateRng, sm: SMode) { return `st-auto-scan-v2-${dr}-${sm}`; }
-function loadCache(dr: DateRng, sm: SMode): ScanCache | null {
+// v3: 缓存键包含 minAmount20d，避免不同流动性设置返回旧缓存
+function cacheKey(dr: DateRng, sm: SMode, minAmt: number) {
+  return `st-auto-scan-v3-${dr}-${sm}-${minAmt}`;
+}
+function loadCache(dr: DateRng, sm: SMode, minAmt: number): ScanCache | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(cacheKey(dr, sm));
+    const raw = localStorage.getItem(cacheKey(dr, sm, minAmt));
     if (!raw) return null;
     const c = JSON.parse(raw) as ScanCache;
     if (Date.now() - c.scannedAt > CACHE_TTL) return null;
     return c;
   } catch { return null; }
 }
-function saveCache(c: ScanCache) {
+function saveCache(c: ScanCache, minAmt: number) {
   if (typeof window === "undefined") return;
-  try { localStorage.setItem(cacheKey(c.dateRange, c.scoreMode), JSON.stringify(c)); } catch { /**/ }
+  try { localStorage.setItem(cacheKey(c.dateRange, c.scoreMode, minAmt), JSON.stringify(c)); } catch { /**/ }
 }
-function clearCache(dr: DateRng, sm: SMode) {
+function clearCache(dr: DateRng, sm: SMode, minAmt: number) {
   if (typeof window === "undefined") return;
-  try { localStorage.removeItem(cacheKey(dr, sm)); } catch { /**/ }
+  try { localStorage.removeItem(cacheKey(dr, sm, minAmt)); } catch { /**/ }
 }
 
 // ── K 线图（内联轻量版） ──────────────────────────────────────────────
@@ -471,6 +484,9 @@ function DetailOverlay({ r, onClose }: { r: ScanStockResult; onClose: () => void
               { label: "止损次数",       value: `${r.stopLossCount}次`,   c: r.stopLossCount>5?R:MID },
               { label: "止盈次数",       value: `${r.takeProfitCount}次`, c: r.takeProfitCount>0?G:MID },
               { label: "平均持仓",       value: `${r.avgHoldDays}天` },
+              { label: "回测引擎",       value: r.sourceBacktestMethod ?? "backtestSingleSTStock", c: G },
+              { label: "成交额下限",     value: r.scanParams?.minAmount20d === 0 ? "不限" : `${(r.scanParams?.minAmount20d??0)/10000}万` },
+              { label: "评分模式",       value: r.scanParams?.scoreMode ?? r.scoreMode },
             ].map(({ label, value, c }) => (
               <div key={label} className="flex items-center justify-between px-3 py-2 rounded-xl"
                 style={{ background: CARD, border: `1px solid ${BORDER}` }}>
@@ -542,6 +558,231 @@ function ScanCard({ r, onDetail, isPass }: { r: ScanStockResult; onDetail: () =>
   );
 }
 
+// ── 单股一致性验证面板 ───────────────────────────────────────────────
+interface ConsistencyPanelProps {
+  stStocks: STStock[];
+  results: ScanStockResult[];
+  failed: FailedStock[];
+  hasDone: boolean;
+  verifySymbol: string;
+  setVerifySymbol: (v: string) => void;
+  verifyRunning: boolean;
+  verifyResult: {
+    status: string; totalReturn: number; annualReturn: number;
+    maxDrawdown: number; winRate: number; totalTrades: number;
+    params: Record<string, unknown>;
+  } | null;
+  verifyError: string | null;
+  onRunVerify: () => void;
+  tushareOk: boolean | null;
+  currentParams: {
+    dateRange: string; scoreMode: string; minAmount20d: number;
+    initialCapital: number; positionRatio: number;
+    stopLossRate: number; halfProfitRate: number; fullProfitRate: number;
+    maxHoldDays: number;
+  };
+}
+
+function ConsistencyPanel({
+  stStocks, results, failed, hasDone,
+  verifySymbol, setVerifySymbol,
+  verifyRunning, verifyResult, verifyError,
+  onRunVerify, tushareOk, currentParams,
+}: ConsistencyPanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // 默认目标：600381 ST春天
+  const targetCode = verifySymbol.split(".")[0].toUpperCase();
+
+  // 在股票池中查找
+  const inPool = stStocks.find(
+    s => s.symbol.toUpperCase() === targetCode ||
+         s.tsCode.toUpperCase() === verifySymbol.toUpperCase()
+  );
+
+  // 在扫描结果中查找（已扫描）
+  const inResults = results.find(
+    r => r.symbol.toUpperCase() === targetCode ||
+         r.tsCode.toUpperCase() === verifySymbol.toUpperCase()
+  );
+
+  // 在失败列表中查找
+  const inFailed = failed.find(
+    f => f.symbol.toUpperCase() === targetCode ||
+         f.tsCode.toUpperCase() === verifySymbol.toUpperCase()
+  );
+
+  const poolOk    = !!inPool;
+  const scanOk    = !!inResults;
+  const failedHit = !!inFailed;
+
+  // 单股结果是否与验证结果一致（允许±0.1%误差）
+  const isConsistent = verifyResult && inResults
+    ? (Math.abs(verifyResult.annualReturn - inResults.annualReturn) < 0.5 &&
+       Math.abs(verifyResult.winRate - inResults.winRate) < 1)
+    : null;
+
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: "rgba(59,130,246,0.05)", border: `1px solid ${B}33` }}>
+      {/* 标题行 */}
+      <button
+        className="w-full px-4 py-3 flex items-center justify-between"
+        onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] font-black" style={{ color: B }}>🔍 单股一致性验证</span>
+          {isConsistent === true  && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: `${G}18`, color: G }}>✅ 一致</span>}
+          {isConsistent === false && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: `${R}18`, color: R }}>⚠️ 不一致</span>}
+        </div>
+        {expanded ? <ChevronUp size={14} color={B} /> : <ChevronDown size={14} color={B} />}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {/* 说明 */}
+          <p className="text-[9px] leading-[1.65]" style={{ color: DIM }}>
+            验证目标：确认自动扫描与手动单股回测使用
+            <span className="font-bold" style={{ color: B }}> 同一引擎（backtestSingleSTStock）</span>
+            、<span className="font-bold" style={{ color: B }}>相同参数</span>时结果完全一致。
+            输入任意 tsCode（如 600381.SZ），点击"单独运行验证"，对比扫描结果与验证结果。
+          </p>
+
+          {/* 验证目标输入 */}
+          <div className="flex gap-2">
+            <input
+              className="flex-1 px-3 py-2 rounded-xl text-[11px] outline-none"
+              style={{ background: "#0a1628", border: `1px solid ${BORDER}`, color: "#F8FAFC" }}
+              placeholder="tsCode，如 600381.SZ"
+              value={verifySymbol}
+              onChange={e => setVerifySymbol(e.target.value)}
+            />
+            <button
+              onClick={onRunVerify}
+              disabled={verifyRunning || !tushareOk}
+              className="px-3 py-2 rounded-xl text-[10px] font-black flex-shrink-0"
+              style={{
+                background: verifyRunning || !tushareOk ? "#0a1628" : B,
+                color: verifyRunning || !tushareOk ? DIM : "#fff",
+                border: `1px solid ${verifyRunning || !tushareOk ? BORDER : B}`,
+              }}>
+              {verifyRunning ? (
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full border-2 animate-spin inline-block"
+                    style={{ borderColor: DIM, borderTopColor: "transparent" }} />
+                  运行中
+                </span>
+              ) : "单独运行验证"}
+            </button>
+          </div>
+
+          {/* 诊断表格 */}
+          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
+            {[
+              {
+                label: "① 在 ST 股票池中",
+                value: poolOk ? `✅ ${inPool!.name} (${inPool!.tsCode})` : "❌ 不在池中",
+                color: poolOk ? G : R,
+                note: poolOk ? "" : "ST股票池未包含该股票，自动扫描不会扫描它",
+              },
+              {
+                label: "② 自动扫描是否调用 backtestSingleSTStock",
+                value: "✅ 固定调用（sourceBacktestMethod = backtestSingleSTStock）",
+                color: G,
+                note: "",
+              },
+              {
+                label: "③ 在已扫描结果中",
+                value: scanOk
+                  ? `✅ 已找到（年化 ${inResults!.annualReturn.toFixed(1)}%，胜率 ${inResults!.winRate.toFixed(1)}%）`
+                  : failedHit
+                  ? `⚠️ 无交易信号 — ${inFailed!.reason}`
+                  : hasDone
+                  ? "❌ 未出现在结果中（可能被分进无信号列表，或未在池中）"
+                  : "— 尚未运行扫描",
+                color: scanOk ? G : failedHit ? Y : R,
+                note: failedHit ? "该股票数据不足或参数条件下无买入信号" : "",
+              },
+              {
+                label: "④ 单独验证结果",
+                value: verifyResult
+                  ? verifyResult.status === "ok"
+                    ? `年化 ${verifyResult.annualReturn.toFixed(1)}%，总收益 ${verifyResult.totalReturn.toFixed(1)}%，回撤 ${verifyResult.maxDrawdown.toFixed(1)}%，胜率 ${verifyResult.winRate.toFixed(1)}%，${verifyResult.totalTrades}笔`
+                    : `⚠️ ${verifyResult.status}（无交易信号）`
+                  : verifyError
+                  ? `❌ ${verifyError}`
+                  : "— 点击「单独运行验证」",
+                color: verifyResult?.status === "ok" ? G : verifyResult ? Y : R,
+                note: "",
+              },
+              {
+                label: "⑤ 一致性结论",
+                value: isConsistent === true
+                  ? "✅ 结果一致（年化误差 < 0.5%）"
+                  : isConsistent === false
+                  ? `⚠️ 结果不一致（可能参数不同）`
+                  : "— 需同时有扫描结果 + 验证结果",
+                color: isConsistent === true ? G : isConsistent === false ? R : DIM,
+                note: isConsistent === false
+                  ? "请检查：1. 参数是否完全一致 2. 是否有缓存旧结果（清除缓存后重扫）"
+                  : "",
+              },
+            ].map(({ label, value, color, note }) => (
+              <div key={label} className="px-3 py-2.5 border-b last:border-b-0"
+                style={{ borderColor: BORDER, background: CARD }}>
+                <p className="text-[9px] mb-0.5" style={{ color: DIM }}>{label}</p>
+                <p className="text-[10px] font-bold" style={{ color }}>{value}</p>
+                {note && <p className="text-[8px] mt-0.5" style={{ color: DIM }}>{note}</p>}
+              </div>
+            ))}
+          </div>
+
+          {/* 当前扫描参数 */}
+          <div className="p-3 rounded-xl" style={{ background: "#0a1628" }}>
+            <p className="text-[9px] font-bold mb-1.5" style={{ color: B }}>当前扫描参数（与手动单股回测对比用）</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {[
+                { k: "回测周期",  v: currentParams.dateRange },
+                { k: "评分模式",  v: currentParams.scoreMode },
+                { k: "成交额下限", v: currentParams.minAmount20d === 0 ? "不限" : `${currentParams.minAmount20d / 10000}万` },
+                { k: "初始资金",  v: `¥${(currentParams.initialCapital/10000).toFixed(0)}万` },
+                { k: "仓位",      v: `${(currentParams.positionRatio*100).toFixed(0)}%` },
+                { k: "止损",      v: `-${(currentParams.stopLossRate*100).toFixed(0)}%` },
+                { k: "小止盈",    v: `+${(currentParams.halfProfitRate*100).toFixed(0)}%` },
+                { k: "大止盈",    v: `+${(currentParams.fullProfitRate*100).toFixed(0)}%` },
+                { k: "T+1",       v: "启用" },
+                { k: "涨跌停限制", v: "启用" },
+                { k: "手续费",    v: "启用" },
+              ].map(({ k, v }) => (
+                <span key={k} className="text-[9px]">
+                  <span style={{ color: DIM }}>{k}：</span>
+                  <span className="font-bold" style={{ color: MID }}>{v}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* 不一致原因清单 */}
+          {isConsistent === false && (
+            <div className="p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.06)", border: `1px solid ${R}33` }}>
+              <p className="text-[9px] font-bold mb-1" style={{ color: R }}>🔍 常见不一致原因排查：</p>
+              {[
+                "参数不同：手动回测使用了不同的成交额下限（默认500万）、止损比例或评分模式",
+                "调用方法不同：本版本已确认两者都调用 backtestSingleSTStock，此项排除",
+                "缓存旧结果：清除缓存后重新扫描",
+                "收益率单位：两处都是%，此项排除",
+                "股票代码转换：tsCode 格式应为 XXXXXX.SH/SZ，请核查",
+                "筛选条件额外过滤：自动扫描仅保留 status=ok 的结果，无交易信号的会进入跳过列表",
+              ].map((t, i) => (
+                <p key={i} className="text-[8px] leading-[1.6]" style={{ color: DIM }}>• {t}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 主组件 ────────────────────────────────────────────────────────────
 interface Props { stStocks: STStock[]; tushareOk: boolean | null; }
 
@@ -556,9 +797,20 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
   const [cacheTime, setCacheTime] = useState<number | null>(null);
   const abortRef = useRef(false);
 
-  // 扫描参数
-  const [dateRange,  setDateRange]  = useState<DateRng>("近3年");
+  // 扫描参数（与手动单股回测保持相同默认值）
+  const [dateRange,  setDateRange]  = useState<DateRng>("近2年");  // 与单股手动回测默认值一致
   const [scoreMode,  setScoreMode]  = useState<SMode>("standard");
+  const [minAmount20d, setMinAmount20d] = useState(5_000_000);    // 与单股手动回测默认值一致
+
+  // 单股一致性验证
+  const [verifySymbol,  setVerifySymbol]  = useState("600381.SZ");  // 600381 ST春天
+  const [verifyRunning, setVerifyRunning] = useState(false);
+  const [verifyResult,  setVerifyResult]  = useState<{
+    status: string; totalReturn: number; annualReturn: number;
+    maxDrawdown: number; winRate: number; totalTrades: number;
+    params: Record<string, unknown>;
+  } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   // 结果筛选
   const [minAnn,    setMinAnn]    = useState(20);   // %
@@ -569,7 +821,7 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
 
   // 初始化时加载缓存
   useEffect(() => {
-    const cache = loadCache(dateRange, scoreMode);
+    const cache = loadCache(dateRange, scoreMode, minAmount20d);
     if (cache) {
       setResults(cache.results);
       setFailed(cache.failed);
@@ -621,6 +873,14 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     const newResults: ScanStockResult[] = [];
     const newFailed:  FailedStock[]     = [];
 
+    // 扫描时使用的参数（必须与手动单股回测默认值一致，保证结果可比较）
+    const scanParamsBase = {
+      initialCapital: 100000, positionRatio: 0.9,
+      stopLossRate: 0.06, halfProfitRate: 0.20, fullProfitRate: 0.35,
+      maxHoldDays: 0, scoreMode, minAmount20d,
+      enableT1: true, enableLimitFilter: true, enableFees: true,
+    };
+
     const BATCH = 3; // 每批并发 3 只
     for (let i = 0; i < total; i += BATCH) {
       if (abortRef.current) break;
@@ -630,17 +890,16 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
 
       const outcomes = await Promise.allSettled(
         batch.map(async stock => {
+          // ⚠️ 调用与手动单股回测完全相同的 API 端点和引擎：backtestSingleSTStock
+          const isRealST = stock.stType !== "" ||
+            /^(ST|＊ST|\*ST|SST)/i.test(stock.name);
           const res = await fetch("/api/tushare/st-single-backtest", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              tsCode: stock.tsCode, name: stock.name, isRealST: true,
+              tsCode: stock.tsCode, name: stock.name, isRealST,
               startDate, endDate,
-              initialCapital: 100000, positionRatio: 0.9,
-              stopLossRate: 0.06, halfProfitRate: 0.20, fullProfitRate: 0.35,
-              maxHoldDays: 0, scoreMode,
-              minAmount20d: 0,          // 扫描时不过滤流动性，由结果筛选决定
-              enableT1: true, enableLimitFilter: true, enableFees: true,
+              ...scanParamsBase,
             }),
           });
           const data = await res.json();
@@ -686,6 +945,9 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
               scoreMode:   data.scoreMode   ?? scoreMode,
               riskLevel:   "high",
               compositeScore: 0,
+              // ── 一致性保证字段 ───────────────────────────────────────
+              sourceBacktestMethod: "backtestSingleSTStock",  // 与手动单股回测使用同一引擎
+              scanParams: { startDate, endDate, ...scanParamsBase },
             };
             r.riskLevel      = riskLevel(r);
             r.compositeScore = compositeScore(r);
@@ -714,16 +976,76 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     const finalState = abortRef.current ? "stopped" : "done";
     setScanState(finalState);
 
-    // 保存缓存
+    // 保存缓存（含 minAmount20d，不同参数不复用旧缓存）
     const now = Date.now();
-    saveCache({ scannedAt: now, dateRange, scoreMode, totalCount: total, results: newResults, failed: newFailed });
+    saveCache({ scannedAt: now, dateRange, scoreMode, totalCount: total, results: newResults, failed: newFailed }, minAmount20d);
     setCacheTime(now);
   }
 
   function stopScan() { abortRef.current = true; }
 
+  /** 单股一致性验证：用与当前扫描完全相同的参数运行指定股票 */
+  async function runVerify() {
+    if (!tushareOk) return;
+    const symbol = verifySymbol.trim().toUpperCase();
+    if (!symbol) return;
+
+    // 确定 tsCode：优先从股票池匹配，否则从输入推导
+    const inPool = stStocks.find(
+      s => s.tsCode.toUpperCase() === symbol ||
+           s.symbol.toUpperCase() === symbol.split(".")[0]
+    );
+    const tsCode = inPool?.tsCode ?? symbol;
+    const name   = inPool?.name   ?? symbol;
+    const isRealST = inPool
+      ? (inPool.stType !== "" || /^(ST|＊ST|\*ST|SST)/i.test(inPool.name))
+      : true;
+
+    setVerifyRunning(true);
+    setVerifyResult(null);
+    setVerifyError(null);
+
+    const n = dateRange === "近1年" ? 1 : dateRange === "近2年" ? 2 : 3;
+    const startDate = yearsAgoYMD(n);
+    const endDate   = todayYMD();
+
+    const params = {
+      tsCode, name, isRealST,
+      startDate, endDate,
+      initialCapital: 100000, positionRatio: 0.9,
+      stopLossRate: 0.06, halfProfitRate: 0.20, fullProfitRate: 0.35,
+      maxHoldDays: 0, scoreMode, minAmount20d,
+      enableT1: true, enableLimitFilter: true, enableFees: true,
+    };
+
+    try {
+      const res  = await fetch("/api/tushare/st-single-backtest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setVerifyResult({
+          status:      data.status,
+          totalReturn: data.totalReturn  ?? 0,
+          annualReturn: data.annualReturn ?? 0,
+          maxDrawdown: data.maxDrawdown  ?? 0,
+          winRate:     data.winRate      ?? 0,
+          totalTrades: data.totalTrades  ?? 0,
+          params,
+        });
+      } else {
+        setVerifyError(data.error ?? "验证失败");
+      }
+    } catch (e) {
+      setVerifyError(String(e));
+    }
+    setVerifyRunning(false);
+  }
+
   function onClearCache() {
-    clearCache(dateRange, scoreMode);
+    clearCache(dateRange, scoreMode, minAmount20d);
     setResults([]); setFailed([]);
     setFromCache(false); setCacheTime(null);
     setScanState("idle");
@@ -787,6 +1109,32 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
                 }}>{l}</button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-bold mb-1.5" style={{ color: DIM }}>
+            20日均成交额下限（与手动单股回测保持一致）
+          </p>
+          <div className="flex gap-1.5">
+            {[
+              { v: 0,           l: "不限" },
+              { v: 1_000_000,   l: "100万" },
+              { v: 5_000_000,   l: "500万" },
+              { v: 10_000_000,  l: "1000万" },
+            ].map(({ v, l }) => (
+              <button key={v} onClick={() => setMinAmount20d(v)} disabled={isScanning}
+                className="flex-1 py-1.5 rounded-xl text-[9px] font-bold"
+                style={{
+                  background: minAmount20d === v ? "rgba(59,130,246,0.15)" : "#0a1628",
+                  border: `1px solid ${minAmount20d === v ? B : BORDER}`,
+                  color: minAmount20d === v ? B : MID,
+                  opacity: isScanning ? 0.5 : 1,
+                }}>{l}</button>
+            ))}
+          </div>
+          <p className="text-[9px] mt-1 px-1" style={{ color: DIM }}>
+            ℹ 手动单股回测默认 500万；此处默认同步为 500万，保证两者结果一致
+          </p>
         </div>
 
         <div className="px-3 py-2 rounded-xl flex items-center justify-between"
@@ -952,6 +1300,29 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── 单股一致性验证面板 ─────────────────────────────────── */}
+      {(hasDone || results.length > 0 || true) && (
+        <ConsistencyPanel
+          stStocks={stStocks}
+          results={results}
+          failed={failed}
+          hasDone={hasDone}
+          verifySymbol={verifySymbol}
+          setVerifySymbol={setVerifySymbol}
+          verifyRunning={verifyRunning}
+          verifyResult={verifyResult}
+          verifyError={verifyError}
+          onRunVerify={runVerify}
+          tushareOk={tushareOk}
+          currentParams={{
+            dateRange, scoreMode, minAmount20d,
+            initialCapital: 100000, positionRatio: 0.9,
+            stopLossRate: 0.06, halfProfitRate: 0.20, fullProfitRate: 0.35,
+            maxHoldDays: 0,
+          }}
+        />
       )}
 
       {/* ── 候选列表 */}
