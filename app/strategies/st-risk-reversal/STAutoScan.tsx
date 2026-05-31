@@ -16,6 +16,10 @@ import {
   AlertTriangle, Play, Square, Activity,
   ChevronDown, ChevronUp, X, RefreshCw,
 } from "lucide-react";
+import {
+  generateScanId, saveScanRecord, computeFailedReasons, toStorageEntry,
+  type STScanParams,
+} from "@/lib/stScanStorage";
 
 // ── 颜色 ─────────────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -980,6 +984,74 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     const now = Date.now();
     saveCache({ scannedAt: now, dateRange, scoreMode, totalCount: total, results: newResults, failed: newFailed }, minAmount20d);
     setCacheTime(now);
+
+    // ── 持久化到 ST 候选观察池 ────────────────────────────────────
+    try {
+      const scanId = generateScanId();
+      const scanParamsSnap: STScanParams = {
+        dateRange, startDate, endDate,
+        scoreMode, minAmount20d,
+        initialCapital:  100000,
+        positionRatio:   0.9,
+        stopLossRate:    0.06,
+        halfProfitRate:  0.20,
+        fullProfitRate:  0.35,
+        maxHoldDays:     0,
+        enableT1:        true,
+        enableLimitFilter: true,
+        enableFees:      true,
+        filterMinAnn:    minAnn,
+        filterMaxDD:     maxDD,
+        filterMinWin:    minWin,
+      };
+
+      const passedEntries = newResults.filter(r => passesFilter(r, minAnn, maxDD, minWin));
+      const topEntry = passedEntries.length > 0
+        ? passedEntries.reduce((a, b) => a.annualReturn > b.annualReturn ? a : b)
+        : null;
+
+      const storageResults = newResults.map(r => {
+        const isPassed   = passesFilter(r, minAnn, maxDD, minWin);
+        const failReason = computeFailedReasons(
+          {
+            annualReturn:             r.annualReturn,
+            maxDrawdown:              r.maxDrawdown,
+            winRate:                  r.winRate,
+            totalTrades:              r.totalTrades,
+            limitDownCannotSellCount: r.limitDownCannotSellCount,
+            suspendedDays:            r.suspendedDays,
+            maxConsecutiveLosses:     r.maxConsecutiveLosses,
+          },
+          minAnn, maxDD, minWin
+        );
+        return toStorageEntry(
+          {
+            ...r,
+            riskEvents:   r.riskEvents ?? [],
+            scanParams:   scanParamsSnap,
+          },
+          scanId, isPassed, failReason
+        );
+      });
+
+      saveScanRecord({
+        scanId,
+        scannedAt: new Date().toISOString(),
+        params:    scanParamsSnap,
+        summary: {
+          totalSTCount:    total,
+          scannedCount:    newResults.length + newFailed.length,
+          passedCount:     passedEntries.length,
+          failedCount:     newResults.length - passedEntries.length + newFailed.length,
+          topAnnualReturn: topEntry?.annualReturn ?? 0,
+          topStockName:    topEntry?.name ?? "",
+        },
+        results:      storageResults,
+        failedStocks: newFailed,
+      });
+    } catch (e) {
+      console.warn("[STAutoScan] 保存候选池失败", e);
+    }
   }
 
   function stopScan() { abortRef.current = true; }

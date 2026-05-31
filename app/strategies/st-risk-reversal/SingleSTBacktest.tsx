@@ -383,8 +383,9 @@ function RiskEventList({ events }: { events: STSingleRiskEvent[] }) {
 
 // ── 主组件 ────────────────────────────────────────────────────────────
 interface Props {
-  stStocks:   STStock[];
-  tushareOk:  boolean | null;
+  stStocks:      STStock[];
+  tushareOk:     boolean | null;
+  initialStock?: STStock;  // 从候选池跳转时预选的股票
 }
 
 type SMode = "conservative" | "standard" | "aggressive" | "debug";
@@ -392,7 +393,7 @@ const SCORE_LABELS: Record<SMode, string> = {
   conservative: "保守 ≥70", standard: "标准 ≥58", aggressive: "激进 ≥45", debug: "调试 ≥30",
 };
 
-export default function SingleSTBacktest({ stStocks, tushareOk }: Props) {
+export default function SingleSTBacktest({ stStocks, tushareOk, initialStock }: Props) {
   const [search,       setSearch]       = useState("");
   const [selected,     setSelected]     = useState<STStock | null>(null);
   const [showSearch,   setShowSearch]   = useState(false);
@@ -417,6 +418,19 @@ export default function SingleSTBacktest({ stStocks, tushareOk }: Props) {
   const [running,     setRunning]     = useState(false);
   const [result,      setResult]      = useState<STSingleResult | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
+
+  // 当 initialStock 变化时，自动选中该股票（来自候选池"查看回测详情"跳转）
+  useEffect(() => {
+    if (initialStock) {
+      setSelected(initialStock);
+      setSearch("");
+      setShowSearch(false);
+      setNonSTConfirm(false);
+      setResult(null);
+      setResultError(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStock?.tsCode]);
 
   const startDate = useMemo(() => {
     const n = dateRange === "近1年" ? 1 : dateRange === "近2年" ? 2 : 3;

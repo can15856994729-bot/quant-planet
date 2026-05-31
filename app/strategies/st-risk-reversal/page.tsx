@@ -25,6 +25,8 @@ import {
 import PageHeader from "@/components/layout/PageHeader";
 import SingleSTBacktest from "./SingleSTBacktest";
 import STAutoScan from "./STAutoScan";
+import STCandidatePool from "./STCandidatePool";
+import type { STCandidateEntry } from "@/lib/stScanStorage";
 
 // ── 颜色常量 ──────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -405,7 +407,8 @@ function STStrategyContent() {
   const [showAdvanced,   setShowAdvanced]   = useState(false);
   const [activeTab,      setActiveTab]      = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
   const [showDiag,       setShowDiag]       = useState(false);
-  const [pageMode,       setPageMode]       = useState<"pool" | "single" | "scan">("pool");
+  const [pageMode,       setPageMode]       = useState<"pool" | "single" | "scan" | "candidates">("pool");
+  const [initialSingleStock, setInitialSingleStock] = useState<STStock | null>(null);
 
   const [running,     setRunning]     = useState(false);
   const [result,      setResult]      = useState<STResult | null>(null);
@@ -625,23 +628,24 @@ function STStrategyContent() {
           </p>
         </div>
 
-        {/* ── 回测模式切换（3 档） ──────────────────────────── */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* ── 回测模式切换（4 档） ──────────────────────────── */}
+        <div className="grid grid-cols-4 gap-1.5">
           {([
-            { k: "pool"   as const, icon: "🏦", label: "股票池回测" },
-            { k: "single" as const, icon: "🔍", label: "单只回测" },
-            { k: "scan"   as const, icon: "🤖", label: "自动扫描" },
+            { k: "pool"       as const, icon: "🏦", label: "股票池" },
+            { k: "single"     as const, icon: "🔍", label: "单只" },
+            { k: "scan"       as const, icon: "🤖", label: "扫描" },
+            { k: "candidates" as const, icon: "📋", label: "候选池" },
           ]).map(({ k, icon, label }) => {
             const isActive = pageMode === k;
             return (
               <button key={k} onClick={() => setPageMode(k)}
-                className="py-3 rounded-2xl text-[12px] font-black flex flex-col items-center gap-0.5"
+                className="py-2.5 rounded-2xl text-[11px] font-black flex flex-col items-center gap-0.5"
                 style={{
                   background: isActive ? "rgba(239,68,68,0.18)" : CARD,
                   border: `2px solid ${isActive ? R : BORDER}`,
                   color: isActive ? R : MID,
                 }}>
-                <span className="text-[16px]">{icon}</span>
+                <span className="text-[15px]">{icon}</span>
                 <span>{label}</span>
               </button>
             );
@@ -1109,12 +1113,35 @@ function STStrategyContent() {
 
         {/* ── 单只股票回测模式 ─────────────────────────────── */}
         {pageMode === "single" && (
-          <SingleSTBacktest stStocks={stStocks} tushareOk={tushareOk} />
+          <SingleSTBacktest
+            stStocks={stStocks}
+            tushareOk={tushareOk}
+            initialStock={initialSingleStock ?? undefined}
+          />
         )}
 
         {/* ── ST 单股自动扫描模式 ──────────────────────────── */}
         {pageMode === "scan" && (
           <STAutoScan stStocks={stStocks} tushareOk={tushareOk} />
+        )}
+
+        {/* ── ST 候选观察池 ────────────────────────────────── */}
+        {pageMode === "candidates" && (
+          <STCandidatePool
+            onViewDetail={(candidate: STCandidateEntry) => {
+              // 将候选股票转换为 STStock 格式，切换到单只回测
+              setInitialSingleStock({
+                tsCode:   candidate.tsCode,
+                symbol:   candidate.symbol,
+                name:     candidate.name,
+                industry: candidate.industry,
+                stType:   candidate.stType,
+                listDate: "",
+                exchange: candidate.tsCode.endsWith(".SH") ? "SSE" : "SZSE",
+              });
+              setPageMode("single");
+            }}
+          />
         )}
 
         {/* ── 底部风险提示 ─────────────────────────────────── */}
