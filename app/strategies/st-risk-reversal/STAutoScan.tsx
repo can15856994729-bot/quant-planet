@@ -13,12 +13,14 @@ import {
   ComposedChart, Line, Scatter,
 } from "recharts";
 import {
-  AlertTriangle, Play, Square, Activity,
-  ChevronDown, ChevronUp, X, RefreshCw,
+  AlertTriangle, Play, Square, Activity, Database,
+  ChevronDown, ChevronUp, X, RefreshCw, CheckCircle, Layers,
 } from "lucide-react";
 import {
   generateScanId, saveScanRecord, computeFailedReasons, toStorageEntry,
-  type STScanParams,
+  loadPool, clearPool, mergeIntoPoolWithStats, replacePool,
+  POOL_KEY,
+  type STScanParams, type STCandidateEntry,
 } from "@/lib/stScanStorage";
 
 // ── 颜色 ─────────────────────────────────────────────────────────────
@@ -162,6 +164,46 @@ const RISK_LABEL: Record<ScanStockResult["riskLevel"], string> = {
 const RISK_COLOR: Record<ScanStockResult["riskLevel"], string> = {
   low: G, medium: Y, high: "#F97316", extreme: R,
 };
+
+/** 将候选池条目还原为 ScanStockResult，用于弹出 DetailOverlay */
+function entryToScanResult(e: STCandidateEntry): ScanStockResult | null {
+  const cr = e.cachedResult;
+  if (!cr) return null;
+  return {
+    tsCode: e.tsCode, symbol: e.symbol, name: e.name,
+    industry: e.industry, stType: e.stType,
+    totalReturn:   e.totalReturn,   annualReturn:  e.annualReturn,
+    maxDrawdown:   e.maxDrawdown,   sharpeRatio:   e.sharpeRatio,
+    winRate:       e.winRate,       profitFactor:  e.profitFactor,
+    totalTrades:   e.tradeCount,    stopLossCount: e.stopLossCount,
+    takeProfitCount:          e.takeProfitCount,
+    limitDownCannotSellCount: e.limitDownCannotSellCount,
+    suspendedDays:            e.suspendedDays,
+    maxConsecutiveLosses:     e.maxConsecutiveLosses,
+    avgHoldDays:   e.avgHoldDays,
+    initialCapital: e.initialCapital, finalCapital: e.finalCapital,
+    equity:       cr.equity as ScanStockResult["equity"],
+    drawdown:     cr.drawdown as ScanStockResult["drawdown"],
+    trades:       cr.trades       as TradeRecord[],
+    riskEvents:   cr.riskEvents   as RiskEvent[],
+    klineSignals: cr.klineSignals as KlineSignal[],
+    diagnostics:  cr.diagnostics  as ScanStockResult["diagnostics"],
+    dataQuality:  cr.dataQuality,
+    scoreMode:    cr.scoreMode,
+    riskLevel:     e.riskLevel,
+    compositeScore: e.compositeScore,
+    sourceBacktestMethod: "backtestSingleSTStock",
+    scanParams: {
+      startDate: e.scanParams.startDate, endDate: e.scanParams.endDate,
+      initialCapital: e.scanParams.initialCapital, positionRatio: e.scanParams.positionRatio,
+      stopLossRate: e.scanParams.stopLossRate, halfProfitRate: e.scanParams.halfProfitRate,
+      fullProfitRate: e.scanParams.fullProfitRate, maxHoldDays: e.scanParams.maxHoldDays,
+      scoreMode: e.scanParams.scoreMode, minAmount20d: e.scanParams.minAmount20d,
+      enableT1: e.scanParams.enableT1, enableLimitFilter: e.scanParams.enableLimitFilter,
+      enableFees: e.scanParams.enableFees,
+    },
+  };
+}
 
 // ── 本地缓存 ──────────────────────────────────────────────────────────
 interface ScanCache {
@@ -511,6 +553,82 @@ function DetailOverlay({ r, onClose }: { r: ScanStockResult; onClose: () => void
   );
 }
 
+// ── 候选池迷你卡片（扫描 tab 内使用）────────────────────────────────────
+function PoolCard({
+  entry, isFromCurrentScan, onDetail,
+}: {
+  entry: STCandidateEntry;
+  isFromCurrentScan: boolean;
+  onDetail: () => void;
+}) {
+  const rl = entry.riskLevel;
+  const scannedStr = (() => {
+    try {
+      const d = new Date(entry.scannedAt);
+      return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    } catch { return "—"; }
+  })();
+
+  return (
+    <div className="p-3 rounded-2xl"
+      style={{ background: CARD, border: `1px solid ${entry.passed ? G+"44" : BORDER}` }}>
+      {/* 头 */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <span className="font-black text-[13px]" style={{ color: "#F8FAFC" }}>{entry.name}</span>
+            <span className="text-[9px]" style={{ color: DIM }}>{entry.symbol}</span>
+            {entry.stType && (
+              <span className="text-[8px] px-1 rounded font-bold" style={{ background: `${R}18`, color: R }}>{entry.stType}</span>
+            )}
+            {entry.passed && (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: `${G}18`, color: G, border: `1px solid ${G}33` }}>✅达标</span>
+            )}
+            {isFromCurrentScan ? (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(59,130,246,0.15)", color: B, border: `1px solid ${B}44` }}>本次扫描</span>
+            ) : (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(100,116,139,0.12)", color: DIM }}>历史候选</span>
+            )}
+          </div>
+          <p className="text-[8px]" style={{ color: DIM }}>
+            最近扫描：{scannedStr} · {entry.scanParams?.scoreMode ?? "standard"} · {entry.scanParams?.dateRange ?? "—"}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold"
+            style={{ background: `${RISK_COLOR[rl]}18`, color: RISK_COLOR[rl], border: `1px solid ${RISK_COLOR[rl]}44` }}>
+            {RISK_LABEL[rl]}
+          </span>
+          <span className="font-black text-[12px]" style={{ color: entry.annualReturn >= 0 ? G : R }}>
+            {entry.annualReturn >= 0 ? "+" : ""}{entry.annualReturn.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+
+      {/* 指标格 */}
+      <div className="grid grid-cols-4 gap-1.5 mb-2">
+        {[
+          { l: "回撤",   v: `${entry.maxDrawdown.toFixed(1)}%`,  c: Math.abs(entry.maxDrawdown)>30?R:Y },
+          { l: "胜率",   v: `${entry.winRate.toFixed(1)}%`,      c: entry.winRate>=50?G:MID },
+          { l: "交易",   v: `${entry.tradeCount}次`,             c: MID },
+          { l: "评分",   v: `${entry.compositeScore}分`,         c: entry.compositeScore>=60?G:Y },
+        ].map(({ l, v, c }) => (
+          <div key={l} className="p-1.5 rounded-lg text-center" style={{ background: "#0a1628" }}>
+            <p className="font-bold text-[9px]" style={{ color: c }}>{v}</p>
+            <p className="text-[7px] mt-0.5" style={{ color: DIM }}>{l}</p>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={onDetail}
+        className="w-full py-2 rounded-xl text-[11px] font-black"
+        style={{ background: entry.cachedResult ? "linear-gradient(135deg,#EF4444,#b91c1c)" : "#0a1628", color: entry.cachedResult ? "#fff" : DIM }}>
+        {entry.cachedResult ? "查看完整回测详情" : "缓存已清理 — 请重新扫描"}
+      </button>
+    </div>
+  );
+}
+
 // ── 候选股票卡片 ──────────────────────────────────────────────────────
 function ScanCard({ r, onDetail, isPass }: { r: ScanStockResult; onDetail: () => void; isPass: boolean }) {
   const rl = r.riskLevel;
@@ -807,6 +925,20 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
   const [cacheTime, setCacheTime] = useState<number | null>(null);
   const abortRef = useRef(false);
 
+  // ── 候选观察池状态 ─────────────────────────────────────────────────
+  const [poolEntries,           setPoolEntries]           = useState<STCandidateEntry[]>([]);
+  const [lastScanPassedEntries, setLastScanPassedEntries] = useState<STCandidateEntry[]>([]);
+  const [scanBanner,            setScanBanner]            = useState<{
+    added: number; updated: number; total: number; scannedTotal: number;
+  } | null>(null);
+  const [poolSaveError,   setPoolSaveError]   = useState<string | null>(null);
+  const [debugLines,      setDebugLines]      = useState<string[]>([]);
+  const [showDebug,       setShowDebug]       = useState(false);
+  const [showPoolSection, setShowPoolSection] = useState(true);
+  const [confirmReplacePool, setConfirmReplacePool] = useState(false);
+  const [confirmClearPool,   setConfirmClearPool]   = useState(false);
+  const [poolSelected,    setPoolSelected]    = useState<ScanStockResult | null>(null);
+
   // 扫描参数（与手动单股回测保持相同默认值）
   const [dateRange,  setDateRange]  = useState<DateRng>("近2年");  // 与单股手动回测默认值一致
   const [scoreMode,  setScoreMode]  = useState<SMode>("standard");
@@ -829,7 +961,13 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
   const [sortBy,    setSortBy]    = useState<SortKey>("annual");
   const [onlyPass,  setOnlyPass]  = useState(true);
 
-  // 初始化时加载缓存
+  // 调试日志辅助
+  function addDebugLine(line: string) {
+    const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    setDebugLines(prev => [`[${ts}] ${line}`, ...prev.slice(0, 49)]);
+  }
+
+  // 初始化时加载缓存 + 候选池
   useEffect(() => {
     const cache = loadCache(dateRange, scoreMode, minAmount20d);
     if (cache) {
@@ -839,6 +977,10 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
       setCacheTime(cache.scannedAt);
       setScanState("done");
     }
+    // 初始加载候选池
+    const pool = loadPool();
+    setPoolEntries(pool);
+    addDebugLine(`初始化完成 - 候选池: ${pool.length}只 (key: ${POOL_KEY})`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -873,6 +1015,15 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     setFailed([]);
     setFromCache(false);
     setCacheTime(null);
+    setScanBanner(null);
+    setPoolSaveError(null);
+    setLastScanPassedEntries([]);
+    setConfirmReplacePool(false);
+    setConfirmClearPool(false);
+
+    // 记录扫描前候选池快照，用于后续计算 added/updated 数量
+    const poolBeforeMap = new Map(loadPool().map((e: STCandidateEntry) => [e.tsCode, e]));
+    addDebugLine(`扫描开始 - ST股票池: ${stStocks.length}只, 候选池快照: ${poolBeforeMap.size}只`);
 
     const n = dateRange === "近1年" ? 1 : dateRange === "近2年" ? 2 : 3;
     const startDate = yearsAgoYMD(n);
@@ -991,7 +1142,9 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     saveCache({ scannedAt: now, dateRange, scoreMode, totalCount: total, results: newResults, failed: newFailed }, minAmount20d);
     setCacheTime(now);
 
-    // ── 持久化到 ST 候选观察池 ────────────────────────────────────
+    // ── 持久化到历史记录 + 显式更新候选观察池 ──────────────────────
+    addDebugLine(`扫描完成 - 有信号: ${newResults.length}只, 无信号/数据不足: ${newFailed.length}只`);
+
     try {
       const scanId = generateScanId();
       const scanParamsSnap: STScanParams = {
@@ -1031,15 +1184,12 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
           minAnn, maxDD, minWin
         );
         return toStorageEntry(
-          {
-            ...r,
-            riskEvents:   r.riskEvents ?? [],
-            scanParams:   scanParamsSnap,
-          },
+          { ...r, riskEvents: r.riskEvents ?? [], scanParams: scanParamsSnap },
           scanId, isPassed, failReason
         );
       });
 
+      // ① 保存历史记录（saveScanRecord 不再隐式合并候选池）
       saveScanRecord({
         scanId,
         scannedAt: new Date().toISOString(),
@@ -1055,8 +1205,49 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
         results:      storageResults,
         failedStocks: newFailed,
       });
+      addDebugLine(`历史记录已保存 - scanId: ${scanId}`);
+
+      // ② 显式合并达标股票到候选池，获取统计数字，立即刷新 UI
+      const passedStorageEntries = storageResults.filter(e => e.passed);
+      addDebugLine(
+        `达标条件：年化≥${minAnn}% / 回撤≤${maxDD}% / 胜率≥${minWin}%  →  达标: ${passedStorageEntries.length}只`
+      );
+      addDebugLine(`候选池保存前: ${poolBeforeMap.size}只`);
+
+      let finalPool: STCandidateEntry[];
+      let addedCount = 0, updatedCount = 0;
+
+      if (passedStorageEntries.length > 0) {
+        const stats = mergeIntoPoolWithStats(passedStorageEntries);
+        finalPool    = stats.candidates;
+        addedCount   = stats.addedCount;
+        updatedCount = stats.updatedCount;
+        addDebugLine(
+          `候选池保存后: ${finalPool.length}只 (新增: ${addedCount}只, 更新: ${updatedCount}只)`
+        );
+      } else {
+        finalPool = loadPool();
+        addDebugLine(`达标数为0，候选池未变化，仍保持 ${finalPool.length}只历史候选`);
+      }
+
+      // ③ 同步 React 状态 — 扫描 tab 内即刻可见
+      setPoolEntries(finalPool);
+      setLastScanPassedEntries(passedStorageEntries);
+      setScanBanner({
+        added:        addedCount,
+        updated:      updatedCount,
+        total:        passedStorageEntries.length,
+        scannedTotal: total,
+      });
+      setPoolSaveError(null);
+
     } catch (e) {
-      console.warn("[STAutoScan] 保存候选池失败", e);
+      const errMsg = String(e);
+      console.warn("[STAutoScan] 保存候选池失败", errMsg);
+      setPoolSaveError(errMsg);
+      addDebugLine(`❌ 保存失败: ${errMsg}`);
+      // 即使保存失败也刷新候选池显示（保持已有数据）
+      setPoolEntries(loadPool());
     }
   }
 
@@ -1127,6 +1318,37 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
     setResults([]); setFailed([]);
     setFromCache(false); setCacheTime(null);
     setScanState("idle");
+    addDebugLine("扫描缓存已清除（候选池不受影响）");
+  }
+
+  function onRefreshPool() {
+    const fresh = loadPool();
+    setPoolEntries(fresh);
+    addDebugLine(`候选池已手动刷新: ${fresh.length}只`);
+  }
+
+  function onClearPoolConfirm() {
+    clearPool();
+    setPoolEntries([]);
+    setLastScanPassedEntries([]);
+    setScanBanner(null);
+    setConfirmClearPool(false);
+    addDebugLine("候选池已清空");
+  }
+
+  function onReplacePoolWithCurrentScan() {
+    if (lastScanPassedEntries.length === 0) return;
+    replacePool(lastScanPassedEntries);
+    setPoolEntries(lastScanPassedEntries);
+    setConfirmReplacePool(false);
+    addDebugLine(`候选池已替换为本次扫描达标股票: ${lastScanPassedEntries.length}只`);
+  }
+
+  function onMergeCurrentScanIntoPool() {
+    if (lastScanPassedEntries.length === 0) return;
+    const stats = mergeIntoPoolWithStats(lastScanPassedEntries);
+    setPoolEntries(stats.candidates);
+    addDebugLine(`手动追加到候选池: 新增${stats.addedCount}只, 更新${stats.updatedCount}只, 共${stats.candidates.length}只`);
   }
 
   const isScanning = scanState === "scanning";
@@ -1450,8 +1672,225 @@ export default function STAutoScan({ stStocks, tushareOk }: Props) {
         </div>
       )}
 
-      {/* 详情弹窗 */}
+      {/* ── 扫描完成横幅 ─────────────────────────────────── */}
+      {hasDone && scanBanner && (
+        <div className="p-3 rounded-2xl flex items-start gap-2"
+          style={{
+            background: scanBanner.total > 0 ? "rgba(0,229,168,0.08)" : "rgba(250,204,21,0.07)",
+            border: `1px solid ${scanBanner.total > 0 ? G : Y}44`,
+          }}>
+          {scanBanner.total > 0
+            ? <CheckCircle size={14} color={G} className="flex-shrink-0 mt-0.5" />
+            : <AlertTriangle size={14} color={Y} className="flex-shrink-0 mt-0.5" />}
+          <p className="text-[11px] leading-[1.65]" style={{ color: scanBanner.total > 0 ? G : Y }}>
+            {scanBanner.total > 0
+              ? `本次扫描完成：扫描 ${scanBanner.scannedTotal} 只，达标 ${scanBanner.total} 只，已新增 ${scanBanner.added} 只，更新 ${scanBanner.updated} 只到候选池。`
+              : `本次扫描完成：扫描 ${scanBanner.scannedTotal} 只，达标 0 只。候选池显示的是历史保存股票，本次没有新增。`}
+          </p>
+        </div>
+      )}
+
+      {/* ── 候选池保存错误提示 ─────────────────────────── */}
+      {poolSaveError && (
+        <div className="p-3 rounded-2xl flex items-start gap-2"
+          style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${R}44` }}>
+          <AlertTriangle size={14} color={R} className="flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: R }}>候选池保存失败</p>
+            <p className="text-[10px] mt-0.5" style={{ color: MID }}>{poolSaveError}</p>
+            <p className="text-[9px] mt-1" style={{ color: DIM }}>提示：可能是 localStorage 空间不足，尝试清空候选池后重新扫描。</p>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ ST 候选观察池 ══════════════ */}
+      <div className="rounded-2xl overflow-hidden"
+        style={{ background: "rgba(59,130,246,0.04)", border: `1px solid ${B}33` }}>
+
+        {/* 标题栏 */}
+        <button
+          className="w-full px-4 py-3 flex items-center justify-between"
+          onClick={() => setShowPoolSection(s => !s)}>
+          <div className="flex items-center gap-2">
+            <Database size={14} color={B} />
+            <span className="text-[13px] font-black" style={{ color: B }}>ST候选观察池</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+              style={{ background: `${B}18`, color: B }}>
+              {poolEntries.length} 只
+            </span>
+            {hasDone && scanBanner && scanBanner.total === 0 && poolEntries.length > 0 && (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold"
+                style={{ background: "rgba(250,204,21,0.12)", color: Y }}>历史数据</span>
+            )}
+          </div>
+          {showPoolSection ? <ChevronUp size={14} color={B} /> : <ChevronDown size={14} color={B} />}
+        </button>
+
+        {showPoolSection && (
+          <div className="px-4 pb-4 space-y-3">
+
+            {/* 历史数据提醒 */}
+            {hasDone && scanBanner && scanBanner.total === 0 && poolEntries.length > 0 && (
+              <div className="p-2.5 rounded-xl"
+                style={{ background: "rgba(250,204,21,0.06)", border: `1px solid ${Y}33` }}>
+                <p className="text-[9px] leading-[1.65]" style={{ color: Y }}>
+                  ⚠️ 候选池为历史保存结果，本次扫描无新增达标股票。
+                  如需更新候选池，请调整筛选参数后重新扫描，或手动管理。
+                </p>
+              </div>
+            )}
+
+            {/* 操作按钮行 */}
+            <div className="flex flex-wrap gap-2">
+              {/* 刷新 */}
+              <button onClick={onRefreshPool}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                style={{ background: CARD, color: MID, border: `1px solid ${BORDER}` }}>
+                <RefreshCw size={11} />刷新候选池
+              </button>
+
+              {/* 追加/更新本次达标 */}
+              {lastScanPassedEntries.length > 0 && (
+                <button onClick={onMergeCurrentScanIntoPool}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                  style={{ background: "rgba(0,229,168,0.12)", color: G, border: `1px solid ${G}33` }}>
+                  <Layers size={11} />追加/更新本次达标 ({lastScanPassedEntries.length}只)
+                </button>
+              )}
+
+              {/* 替换候选池 */}
+              {lastScanPassedEntries.length > 0 && (
+                confirmReplacePool ? (
+                  <div className="flex gap-1.5">
+                    <button onClick={onReplacePoolWithCurrentScan}
+                      className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                      style={{ background: "rgba(239,68,68,0.15)", color: R, border: `1px solid ${R}44` }}>
+                      确认替换
+                    </button>
+                    <button onClick={() => setConfirmReplacePool(false)}
+                      className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                      style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmReplacePool(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                    style={{ background: "rgba(239,68,68,0.08)", color: R, border: `1px solid ${R}33` }}>
+                    用本次扫描替换候选池
+                  </button>
+                )
+              )}
+
+              {/* 清空候选池 */}
+              {poolEntries.length > 0 && (
+                confirmClearPool ? (
+                  <div className="flex gap-1.5">
+                    <button onClick={onClearPoolConfirm}
+                      className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                      style={{ background: "rgba(239,68,68,0.15)", color: R, border: `1px solid ${R}44` }}>
+                      确认清空
+                    </button>
+                    <button onClick={() => setConfirmClearPool(false)}
+                      className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                      style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmClearPool(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold"
+                    style={{ background: "#0a1628", color: DIM, border: `1px solid ${BORDER}` }}>
+                    清空候选池
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* 候选池为空 */}
+            {poolEntries.length === 0 && (
+              <div className="py-8 text-center">
+                <Database size={32} color={BORDER} className="mx-auto mb-2" />
+                <p className="text-[12px] font-bold" style={{ color: MID }}>候选池暂无数据</p>
+                <p className="text-[10px] mt-1" style={{ color: DIM }}>运行扫描后，达标股票将自动保存到此处</p>
+              </div>
+            )}
+
+            {/* 候选池条目列表 */}
+            {poolEntries.length > 0 && (
+              <div className="space-y-2.5">
+                {/* 排序：达标 > 本次扫描 > 年化 */}
+                {[...poolEntries]
+                  .sort((a, b) => {
+                    if (a.passed !== b.passed) return a.passed ? -1 : 1;
+                    return b.annualReturn - a.annualReturn;
+                  })
+                  .map(entry => {
+                    const isFromCurrent = lastScanPassedEntries.some(e => e.tsCode === entry.tsCode);
+                    const scanResult = entryToScanResult(entry);
+                    return (
+                      <PoolCard
+                        key={entry.tsCode}
+                        entry={entry}
+                        isFromCurrentScan={isFromCurrent}
+                        onDetail={() => {
+                          if (scanResult) setPoolSelected(scanResult);
+                        }}
+                      />
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════ 调试日志面板 ══════════════ */}
+      <div className="rounded-2xl overflow-hidden"
+        style={{ background: "rgba(30,41,59,0.5)", border: `1px solid ${BORDER}` }}>
+        <button
+          className="w-full px-4 py-2.5 flex items-center justify-between"
+          onClick={() => setShowDebug(s => !s)}>
+          <span className="text-[10px] font-bold" style={{ color: DIM }}>🔍 调试信息</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px]" style={{ color: DIM }}>key: {POOL_KEY}</span>
+            {showDebug ? <ChevronUp size={12} color={DIM} /> : <ChevronDown size={12} color={DIM} />}
+          </div>
+        </button>
+        {showDebug && (
+          <div className="px-4 pb-3 space-y-2 border-t" style={{ borderColor: BORDER }}>
+            {/* 静态信息 */}
+            <div className="p-2 rounded-xl space-y-1 mt-2" style={{ background: "#0a1628" }}>
+              {[
+                { k: "候选池 localStorage key", v: POOL_KEY },
+                { k: "扫描结果（有信号）",       v: `${results.length} 只` },
+                { k: "本次达标数量",              v: `${results.filter(r => passesFilter(r, minAnn, maxDD, minWin)).length} 只` },
+                { k: "候选池当前条目数",          v: `${poolEntries.length} 只` },
+                { k: "本次扫描已入池条目数",      v: `${lastScanPassedEntries.length} 只` },
+                { k: "达标条件",                  v: `年化≥${minAnn}% / 回撤≤${maxDD}% / 胜率≥${minWin}%` },
+              ].map(({ k, v }) => (
+                <div key={k} className="flex items-center justify-between gap-2">
+                  <span className="text-[9px]" style={{ color: DIM }}>{k}</span>
+                  <span className="text-[9px] font-bold" style={{ color: MID }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {/* 动态日志 */}
+            {debugLines.length > 0 && (
+              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                {debugLines.map((line, i) => (
+                  <p key={i} className="text-[8px] font-mono leading-[1.5]" style={{ color: DIM }}>{line}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 详情弹窗（来自扫描结果） */}
       {selected && <DetailOverlay r={selected} onClose={() => setSelected(null)} />}
+      {/* 详情弹窗（来自候选池） */}
+      {poolSelected && <DetailOverlay r={poolSelected} onClose={() => setPoolSelected(null)} />}
     </div>
   );
 }

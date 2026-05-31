@@ -151,10 +151,16 @@ function CandidateCard({
         </div>
       )}
 
-      {/* 扫描时间 */}
-      <p className="text-[8px] mb-2" style={{ color: DIM }}>
-        扫描于 {fmtDate(entry.scannedAt)} · {entry.scanParams?.dateRange ?? "—"} · {entry.scanParams?.scoreMode ?? "—"}
-      </p>
+      {/* 扫描时间 + 来源 */}
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <p className="text-[8px]" style={{ color: DIM }}>
+          最近扫描：{fmtDate(entry.scannedAt)}
+        </p>
+        <span className="text-[8px] px-1.5 py-0.5 rounded-full"
+          style={{ background: "rgba(100,116,139,0.12)", color: DIM }}>
+          {entry.scanParams?.dateRange ?? "—"} · {entry.scanParams?.scoreMode ?? "—"}
+        </span>
+      </div>
 
       {/* 操作按钮 */}
       <div className="flex gap-2">
@@ -351,7 +357,15 @@ export default function STCandidatePool({ onViewDetail }: Props) {
     setHistory(loadHistory());
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    reload();
+    // 监听 storage 变化（同页其他 tab 更新 localStorage 后，候选池自动刷新）
+    function onStorage(e: StorageEvent) {
+      if (e.key && e.key.startsWith("quantplanet_st")) reload();
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [reload]);
 
   // 过滤 + 排序后的候选池
   const displayed = useMemo(() => {

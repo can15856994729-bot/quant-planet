@@ -178,6 +178,42 @@ export function mergeIntoPool(entries: STCandidateEntry[]): void {
   savePoolRaw(Array.from(map.values()));
 }
 
+/**
+ * 合并到候选观察池，并返回详细统计（新增数、更新数、最终列表）。
+ * 供 STAutoScan 在扫描完成后直接调用，以便立即刷新 UI 状态。
+ */
+export function mergeIntoPoolWithStats(entries: STCandidateEntry[]): {
+  candidates: STCandidateEntry[];
+  addedCount: number;
+  updatedCount: number;
+} {
+  const existing = loadPool();
+  const map = new Map<string, STCandidateEntry>();
+  for (const e of existing) map.set(e.tsCode, e);
+  let addedCount = 0, updatedCount = 0;
+  for (const e of entries) {
+    const prev = map.get(e.tsCode);
+    if (!prev) {
+      addedCount++;
+      map.set(e.tsCode, e);
+    } else if (new Date(e.scannedAt) >= new Date(prev.scannedAt)) {
+      updatedCount++;
+      map.set(e.tsCode, e);
+    }
+  }
+  const candidates = Array.from(map.values());
+  savePoolRaw(candidates);
+  return { candidates, addedCount, updatedCount };
+}
+
+/**
+ * 用新候选列表完全替换候选池（清空旧数据）。
+ * 供"用本次扫描结果替换候选池"按钮使用。
+ */
+export function replacePool(entries: STCandidateEntry[]): void {
+  savePoolRaw(entries);
+}
+
 /** 从候选池移除指定股票 */
 export function removeFromPool(tsCode: string): void {
   savePoolRaw(loadPool().filter(e => e.tsCode !== tsCode));
@@ -230,11 +266,8 @@ export function saveScanRecord(record: STScanRecord): void {
     }
   }
 
-  // 同步合并达标股票到候选池
-  const passed = record.results.filter(r => r.passed);
-  if (passed.length > 0) {
-    mergeIntoPool(passed);
-  }
+  // ⚠️ 候选池合并由调用方（STAutoScan）通过 mergeIntoPoolWithStats 显式执行，
+  //    此处不再隐式调用 mergeIntoPool，以便调用方获取统计并立即刷新 UI。
 }
 
 /** 删除指定扫描历史记录 */
