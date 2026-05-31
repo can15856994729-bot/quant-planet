@@ -14,32 +14,37 @@ import { MOCK_SIM_ACCOUNT } from "./mock-data";
 export type SimMarket = "A" | "HK" | "US";
 
 export interface SimPos {
-  symbol:       string;
-  name:         string;
-  market:       SimMarket;
-  shares:       number;
-  costPrice:    number;
-  currentPrice: number;
-  marketValue:  number;
-  pnl:          number;
-  pnlPct:       number;
-  strategy?:    string;
-  buyDate?:     string;
+  symbol:         string;
+  name:           string;
+  market:         SimMarket;
+  shares:         number;
+  costPrice:      number;
+  currentPrice:   number;
+  marketValue:    number;
+  pnl:            number;
+  pnlPct:         number;
+  strategy?:      string;
+  buyDate?:       string;
+  isAutoTrading?: boolean;
+  autoOrderId?:   string;
+  buyReason?:     string;
 }
 
 export interface SimTrade {
-  id:        string;
-  symbol:    string;
-  name:      string;
-  type:      "BUY" | "SELL";
-  price:     number;
-  shares:    number;
-  amount:    number;         // shares * price
-  fee:       number;
-  pnl?:      number;         // realised P&L (sell only)
-  strategy?: string;
-  source:    "manual" | "strategy";
-  createdAt: string;
+  id:             string;
+  symbol:         string;
+  name:           string;
+  type:           "BUY" | "SELL";
+  price:          number;
+  shares:         number;
+  amount:         number;         // shares * price
+  fee:            number;
+  pnl?:           number;         // realised P&L (sell only)
+  strategy?:      string;
+  source:         "manual" | "strategy" | "auto_trading";
+  autoOrderId?:   string;
+  triggerReason?: string;
+  createdAt:      string;
 }
 
 // ── Fee rules (simplified, transparent) ─────────────────────────
@@ -66,20 +71,25 @@ export function calcFeeLabel(market: SimMarket, type: "BUY" | "SELL"): string {
 // ── Store interface ──────────────────────────────────────────────
 interface SimActions {
   sellPosition(p: {
-    symbol: string;
-    shares: number;
-    price:  number;
-    source?: "manual" | "strategy";
+    symbol:          string;
+    shares:          number;
+    price:           number;
+    source?:         "manual" | "strategy" | "auto_trading";
+    autoOrderId?:    string;
+    triggerReason?:  string;
   }): void;
 
   buyPosition(p: {
-    symbol:    string;
-    name:      string;
-    market:    SimMarket;
-    shares:    number;
-    price:     number;
-    strategy?: string;
-    source?:   "manual" | "strategy";
+    symbol:          string;
+    name:            string;
+    market:          SimMarket;
+    shares:          number;
+    price:           number;
+    strategy?:       string;
+    source?:         "manual" | "strategy" | "auto_trading";
+    isAutoTrading?:  boolean;
+    autoOrderId?:    string;
+    buyReason?:      string;
   }): void;
 
   updateCurrentPrices(prices: Record<string, number>): void;
@@ -133,7 +143,7 @@ export const useSimStore = create<SimState>()(
       trades:         SEED_TRADES,
 
       // ── Sell ──────────────────────────────────────────────────
-      sellPosition({ symbol, shares, price, source = "manual" }) {
+      sellPosition({ symbol, shares, price, source = "manual", autoOrderId, triggerReason }) {
         set(st => {
           const pos = st.positions.find(p => p.symbol === symbol);
           if (!pos) return st;
@@ -157,18 +167,20 @@ export const useSimStore = create<SimState>()(
             .filter(Boolean) as SimPos[];
 
           const newTrade: SimTrade = {
-            id:        `sell-${Date.now()}`,
+            id:            `sell-${Date.now()}`,
             symbol,
-            name:      pos.name,
-            type:      "SELL",
+            name:          pos.name,
+            type:          "SELL",
             price,
-            shares:    actualShares,
+            shares:        actualShares,
             amount,
             fee,
-            pnl:       realPnl,
-            strategy:  pos.strategy,
+            pnl:           realPnl,
+            strategy:      pos.strategy,
             source,
-            createdAt: new Date().toISOString(),
+            autoOrderId,
+            triggerReason,
+            createdAt:     new Date().toISOString(),
           };
 
           return {
@@ -180,7 +192,7 @@ export const useSimStore = create<SimState>()(
       },
 
       // ── Buy ───────────────────────────────────────────────────
-      buyPosition({ symbol, name, market, shares, price, strategy, source = "manual" }) {
+      buyPosition({ symbol, name, market, shares, price, strategy, source = "manual", isAutoTrading, autoOrderId, buyReason }) {
         set(st => {
           const amount    = +(shares * price).toFixed(2);
           const fee       = calcTradeFee(market, amount, "BUY");
@@ -198,7 +210,7 @@ export const useSimStore = create<SimState>()(
             const newPnlPct    = +((existing.currentPrice - newCost) / newCost * 100).toFixed(2);
             newPositions = st.positions.map(p =>
               p.symbol === symbol
-                ? { ...p, shares: totalShares, costPrice: newCost, marketValue: newMV, pnl: newPnl, pnlPct: newPnlPct, strategy: strategy ?? p.strategy }
+                ? { ...p, shares: totalShares, costPrice: newCost, marketValue: newMV, pnl: newPnl, pnlPct: newPnlPct, strategy: strategy ?? p.strategy, isAutoTrading: isAutoTrading ?? p.isAutoTrading, autoOrderId: autoOrderId ?? p.autoOrderId }
                 : p
             );
           } else {
@@ -206,6 +218,7 @@ export const useSimStore = create<SimState>()(
               symbol, name, market,
               shares, costPrice: price, currentPrice: price,
               marketValue: amount, pnl: 0, pnlPct: 0, strategy,
+              isAutoTrading, autoOrderId, buyReason,
             }];
           }
 
@@ -213,6 +226,7 @@ export const useSimStore = create<SimState>()(
             id: `buy-${Date.now()}`,
             symbol, name, type: "BUY",
             price, shares, amount, fee, strategy, source,
+            autoOrderId,
             createdAt: new Date().toISOString(),
           };
 

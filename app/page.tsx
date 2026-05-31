@@ -9,6 +9,7 @@ import HomeMarket from "@/components/ui/HomeMarket";
 import HomeWatchlist from "@/components/ui/HomeWatchlist";
 import HomeSignals from "@/components/ui/HomeSignals";
 import SignalBellBadge from "@/components/ui/SignalBellBadge";
+import HomeAutoTrading from "@/components/ui/HomeAutoTrading";
 
 export default function HomePage() {
   const risk = getRiskReport();
@@ -84,6 +85,9 @@ export default function HomePage() {
           ))}
         </div>
       </div>
+
+      {/* 模拟自动交易状态 */}
+      <HomeAutoTrading />
 
       {/* 市场概览（实时数据） */}
       <HomeMarket />

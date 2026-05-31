@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2,
-  AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, BarChart3, ChevronDown,
+  AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, BarChart3, ChevronDown, Bot,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { getStockBySymbol } from "@/lib/stockService";
@@ -226,13 +226,20 @@ function SimTradingContent() {
       </div>
 
       {/* ── 新建下单按钮 ── */}
-      <div className="mx-4 mt-3">
+      <div className="mx-4 mt-3 space-y-2">
         <button onClick={() => { setBuyTradeType("BUY"); setShowBuyOrder(true); }}
           className="w-full py-3 rounded-2xl font-black text-[14px] glow-green"
           style={{ background: "linear-gradient(135deg, #00E5A8, #00b885)", color: "#07111F" }}>
           <Plus size={16} className="inline mr-1.5" />
           模拟下单
         </button>
+        <Link href="/simulation/auto-trading">
+          <button className="w-full py-3 rounded-2xl font-bold text-[13px]"
+            style={{ background: "#0d1f3c", border: "1px solid rgba(139,92,246,0.3)", color: "#A78BFA" }}>
+            <Bot size={16} className="inline mr-1.5" />
+            模拟自动交易
+          </button>
+        </Link>
       </div>
 
       {/* ── Tabs ── */}
@@ -398,7 +405,8 @@ function SimTradingContent() {
                       <p className="text-[10px]" style={{ color: "#94A3B8" }}>
                         {new Date(tr.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         {" · "}{tr.shares}股
-                        {tr.source === "strategy" && <span className="ml-1" style={{ color: "#3B82F6" }}>· 策略</span>}
+                        {tr.source === "strategy"     && <span className="ml-1" style={{ color: "#3B82F6" }}>· 策略</span>}
+                        {tr.source === "auto_trading" && <span className="ml-1" style={{ color: "#A78BFA" }}>· 自动交易</span>}
                       </p>
                       {tr.strategy && <p className="text-[9px] mt-0.5" style={{ color: "#64748B" }}>📊 {tr.strategy}</p>}
                     </div>
