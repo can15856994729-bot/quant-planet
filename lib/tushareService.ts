@@ -229,6 +229,7 @@ export async function getDailyBasic(
 // ─────────────────────────────────────────────────────────────────────
 // 5. 利润表 — income
 //    缓存：7d（财务数据更新频率低）
+//    包含：营收、营业利润、净利润、期间费用、研发费用
 // ─────────────────────────────────────────────────────────────────────
 export async function getIncome(
   tsCode:    string,
@@ -238,7 +239,7 @@ export async function getIncome(
   return callTushare(
     "income",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "end_date,n_income,n_income_attr_p,total_revenue,revenue,operate_profit",
+    "ann_date,end_date,total_revenue,revenue,operate_profit,n_income_attr_p,n_income,admin_exp,sell_exp,fin_exp,rd_exp",
     7 * 24 * 60 * 60 * 1000,
   );
 }
@@ -246,6 +247,7 @@ export async function getIncome(
 // ─────────────────────────────────────────────────────────────────────
 // 6. 资产负债表 — balancesheet
 //    缓存：7d
+//    包含：总资产、总负债、净资产、货币资金、流动资产/负债
 // ─────────────────────────────────────────────────────────────────────
 export async function getBalanceSheet(
   tsCode:    string,
@@ -255,7 +257,7 @@ export async function getBalanceSheet(
   return callTushare(
     "balancesheet",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int",
+    "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories",
     7 * 24 * 60 * 60 * 1000,
   );
 }
@@ -263,6 +265,7 @@ export async function getBalanceSheet(
 // ─────────────────────────────────────────────────────────────────────
 // 7. 现金流量表 — cashflow
 //    缓存：7d
+//    包含：经营/投资/筹资三大现金流
 // ─────────────────────────────────────────────────────────────────────
 export async function getCashflow(
   tsCode:    string,
@@ -272,13 +275,95 @@ export async function getCashflow(
   return callTushare(
     "cashflow",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act",
+    "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act",
     7 * 24 * 60 * 60 * 1000,
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 8. 交易日历 — trade_cal
+// 8. 财务指标 — fina_indicator
+//    缓存：7d
+//    包含：ROE、毛利率、净利率、资产负债率、流动/速动比率、EPS
+// ─────────────────────────────────────────────────────────────────────
+export async function getFinancialIndicator(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "fina_indicator",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    "ann_date,end_date,eps,bps,roe,netprofit_margin,grossprofit_margin,debt_to_assets,current_ratio,quick_ratio,assets_turn",
+    7 * 24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 9. 财报聚合 — getFinancialReport
+//    并行拉取 income / balancesheet / cashflow / fina_indicator / daily_basic
+//    各子接口独立容错；返回原始 records 数组供上层 API Route 处理
+// ─────────────────────────────────────────────────────────────────────
+export interface FinancialSubResult {
+  records: TushareRecord[];
+  status:  "ok" | "permission_denied" | "error" | "empty";
+  error?:  string;
+}
+
+export interface FinancialReportRaw {
+  tsCode:       string;
+  income:       FinancialSubResult;
+  balanceSheet: FinancialSubResult;
+  cashFlow:     FinancialSubResult;
+  finaIndicator: FinancialSubResult;
+  latestValuation: TushareRecord | null;
+  valuationStatus: "ok" | "permission_denied" | "error" | "empty";
+}
+
+function toSubResult(r: TushareResult): FinancialSubResult {
+  if (!r.ok) {
+    return {
+      records: [],
+      status:  r.permissionDenied ? "permission_denied" : "error",
+      error:   r.error,
+    };
+  }
+  return { records: r.records, status: r.records.length > 0 ? "ok" : "empty" };
+}
+
+export async function getFinancialReport(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<FinancialReportRaw> {
+  const [incRes, bsRes, cfRes, fiRes, dbRes] = await Promise.all([
+    getIncome(tsCode, startDate, endDate),
+    getBalanceSheet(tsCode, startDate, endDate),
+    getCashflow(tsCode, startDate, endDate),
+    getFinancialIndicator(tsCode, startDate, endDate),
+    getDailyBasic(tsCode, daysAgoStr(10), todayStr()),
+  ]);
+
+  // Latest valuation = most recent daily_basic record (sorted asc → last element)
+  const dbRecords = dbRes.ok ? [...dbRes.records].sort((a, b) =>
+    String(a.trade_date ?? "").localeCompare(String(b.trade_date ?? ""))
+  ) : [];
+  const latestValuation = dbRecords.length > 0 ? dbRecords[dbRecords.length - 1] : null;
+
+  return {
+    tsCode,
+    income:          toSubResult(incRes),
+    balanceSheet:    toSubResult(bsRes),
+    cashFlow:        toSubResult(cfRes),
+    finaIndicator:   toSubResult(fiRes),
+    latestValuation,
+    valuationStatus: !dbRes.ok
+      ? (dbRes.permissionDenied ? "permission_denied" : "error")
+      : dbRecords.length > 0 ? "ok" : "empty",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 10. 交易日历 — trade_cal
 //    缓存：24h
 // ─────────────────────────────────────────────────────────────────────
 export async function getTradeCal(

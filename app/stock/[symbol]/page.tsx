@@ -8,7 +8,16 @@ import { formatPrice } from "@/lib/utils";
 import StockDetailClient from "./StockDetailClient";
 import StockPriceCard from "./StockPriceCard";
 import WatchlistButton from "@/components/ui/WatchlistButton";
+import FinancialReport from "@/components/financial/FinancialReport";
 import type { Stock } from "@/types";
+
+/** 股票代码 → Tushare ts_code（纯字符串工具，服务端使用） */
+function symbolToTsCode(symbol: string): string {
+  if (symbol.startsWith("6"))  return `${symbol}.SH`;
+  if (symbol.startsWith("0") || symbol.startsWith("3")) return `${symbol}.SZ`;
+  if (symbol.startsWith("8") || symbol.startsWith("4")) return `${symbol}.BJ`;
+  return `${symbol}.SH`;
+}
 
 // 预渲染热门股票；其余 symbol 走 SSR（dynamicParams = true 默认值）
 export function generateStaticParams() {
@@ -215,7 +224,7 @@ export default async function StockDetailPage({
           </div>
         </div>
 
-        {/* 风险提示 */}
+        {/* 技术指标风险提示 */}
         <div
           className="p-3 rounded-xl flex items-start gap-2"
           style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}
@@ -225,6 +234,18 @@ export default async function StockDetailPage({
             以上技术指标基于历史数据计算，仅供参考，不构成投资建议。
           </p>
         </div>
+
+        {/* ─────────────────────────────────────────────────────────
+            财报分析模块（仅 A 股，6 位代码）
+            数据来源：Tushare 财报三表 + 财务指标
+            服务端 API Route 调用，不暴露 TUSHARE_TOKEN
+        ───────────────────────────────────────────────────────── */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <FinancialReport
+            tsCode={symbolToTsCode(stock.symbol)}
+            stockName={name}
+          />
+        )}
 
         {/* 操作按钮 */}
         <Link href={`/backtest?symbol=${stock.symbol}`}>

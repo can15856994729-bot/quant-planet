@@ -75,6 +75,9 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
     indexDaily,
     tradeCal,
     income,
+    balancesheet,
+    cashflow,
+    finaIndicator,
   ] = await Promise.all([
     // stock_basic：SSE 上市股票，只要几条验证权限即可
     testCap("stock_basic",
@@ -105,9 +108,28 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
     testCap("income",
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
       "end_date,n_income_attr_p,total_revenue"),
+
+    // balancesheet：贵州茅台近90天
+    testCap("balancesheet",
+      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
+      "end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int"),
+
+    // cashflow：贵州茅台近90天
+    testCap("cashflow",
+      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
+      "end_date,n_cashflow_act"),
+
+    // fina_indicator：贵州茅台近90天
+    testCap("fina_indicator",
+      { ts_code: "600519.SH", start_date: start90, end_date: end },
+      "end_date,roe,grossprofit_margin,netprofit_margin,debt_to_assets"),
   ]);
 
-  return { stock_basic: stockBasic, daily, daily_basic: dailyBasic, index_daily: indexDaily, trade_cal: tradeCal, income };
+  return {
+    stock_basic: stockBasic, daily, daily_basic: dailyBasic,
+    index_daily: indexDaily, trade_cal: tradeCal,
+    income, balancesheet, cashflow, fina_indicator: finaIndicator,
+  };
 }
 
 // ── 能力状态 → UI 文字 ────────────────────────────────────────────────
@@ -148,40 +170,48 @@ export async function GET(req: NextRequest) {
   const connected = coreCaps.some(c => c.status === "ok");
 
   // ── 推断各功能可用性 ─────────────────────────────────────────────
-  const stockPoolOk   = caps.stock_basic.status === "ok";
-  const klineOk       = caps.daily.status === "ok";
-  const valuationOk   = caps.daily_basic.status === "ok";
-  const indexOk       = caps.index_daily.status === "ok";
-  const tradeCalOk    = caps.trade_cal.status === "ok";
-  const incomeOk      = caps.income.status === "ok" || caps.income.status === "empty";
-  const backtestOk    = klineOk;  // 回测最低要求：daily 可用
+  const stockPoolOk      = caps.stock_basic.status === "ok";
+  const klineOk          = caps.daily.status === "ok";
+  const valuationOk      = caps.daily_basic.status === "ok";
+  const indexOk          = caps.index_daily.status === "ok";
+  const tradeCalOk       = caps.trade_cal.status === "ok";
+  const incomeOk         = caps.income.status === "ok" || caps.income.status === "empty";
+  const balancesheetOk   = caps.balancesheet.status === "ok" || caps.balancesheet.status === "empty";
+  const cashflowOk       = caps.cashflow.status === "ok" || caps.cashflow.status === "empty";
+  const finaIndicatorOk  = caps.fina_indicator.status === "ok" || caps.fina_indicator.status === "empty";
+  const financialsOk     = incomeOk && balancesheetOk && cashflowOk;
+  const backtestOk       = klineOk;
 
   // ── 状态摘要文字 ──────────────────────────────────────────────────
+  function finLabel(cap: CapResult, name: string): string {
+    if (cap.status === "ok")                return `${name} ✅ 可用（${cap.rowCount} 条）`;
+    if (cap.status === "empty")             return `${name} ⚠️ API可达，近90天无新季报（正常）`;
+    if (cap.status === "permission_denied") return `${name} ❌ 权限不足`;
+    return `${name} ❌ 错误：${cap.error?.slice(0, 40)}`;
+  }
+
   const statusSummary = [
-    capLabel(caps.stock_basic,  "A股股票池(stock_basic)"),
-    capLabel(caps.daily,        "历史K线(daily)"),
-    capLabel(caps.daily_basic,  "估值数据(daily_basic)"),
-    capLabel(caps.index_daily,  "指数日线(index_daily)"),
-    capLabel(caps.trade_cal,    "交易日历(trade_cal)"),
-    // income 特殊处理：empty = API可达但无近期数据（季报正常）
-    caps.income.status === "ok"
-      ? `财务数据(income) ✅ 可用（${caps.income.rowCount} 条）`
-      : caps.income.status === "empty"
-      ? "财务数据(income) ⚠️ API可达，近90天无新季报（正常）"
-      : caps.income.status === "permission_denied"
-      ? "财务数据(income) ❌ 权限不足"
-      : `财务数据(income) ❌ 错误：${caps.income.error?.slice(0, 40)}`,
+    capLabel(caps.stock_basic,    "A股股票池(stock_basic)"),
+    capLabel(caps.daily,          "历史K线(daily)"),
+    capLabel(caps.daily_basic,    "估值数据(daily_basic)"),
+    capLabel(caps.index_daily,    "指数日线(index_daily)"),
+    capLabel(caps.trade_cal,      "交易日历(trade_cal)"),
+    finLabel(caps.income,         "利润表(income)"),
+    finLabel(caps.balancesheet,   "资产负债表(balancesheet)"),
+    finLabel(caps.cashflow,       "现金流量表(cashflow)"),
+    finLabel(caps.fina_indicator, "财务指标(fina_indicator)"),
   ];
 
   // ── 功能可用性说明 ────────────────────────────────────────────────
   const featureSummary = {
-    stock_pool:       stockPoolOk   ? "✅ 沪深北全量股票池（Tushare）" : "⚠️ 降级为东方财富+本地股票池",
-    historical_kline: klineOk       ? "✅ 历史K线（Tushare前复权）"    : "⚠️ 降级为东方财富K线",
-    valuation:        valuationOk   ? "✅ PE/PB/市值/换手率（Tushare）" : "⚠️ 降级为东方财富实时报价PE/PB",
-    market_timing:    indexOk       ? "✅ 指数日线择时（Tushare）"      : "⚠️ 降级为东方财富指数K线",
-    trade_cal:        tradeCalOk    ? "✅ 交易日历"                     : "⚠️ 降级为K线日期推导",
-    backtest:         backtestOk    ? "✅ 真实历史回测可用"             : "❌ Tushare daily 权限不足，回测锁定",
-    fundamentals:     incomeOk      ? "✅/⚠️ 财务数据可访问"            : "❌ 财务/质量因子数据不可用",
+    stock_pool:       stockPoolOk     ? "✅ 沪深北全量股票池（Tushare）"      : "⚠️ 降级为东方财富+本地股票池",
+    historical_kline: klineOk         ? "✅ 历史K线（Tushare前复权）"          : "⚠️ 降级为东方财富K线",
+    valuation:        valuationOk     ? "✅ PE/PB/市值/换手率（Tushare）"      : "⚠️ 降级为东方财富实时报价PE/PB",
+    market_timing:    indexOk         ? "✅ 指数日线择时（Tushare）"            : "⚠️ 降级为东方财富指数K线",
+    trade_cal:        tradeCalOk      ? "✅ 交易日历"                           : "⚠️ 降级为K线日期推导",
+    backtest:         backtestOk      ? "✅ 真实历史回测可用"                   : "❌ Tushare daily 权限不足，回测锁定",
+    fundamentals:     financialsOk    ? "✅ 财报三表+财务指标可用（股票详情页）" : incomeOk ? "⚠️ 部分财报数据可用" : "❌ 财务数据权限不足",
+    fina_indicator:   finaIndicatorOk ? "✅ ROE/毛利率/资负率/流速比可用"        : "❌ 财务指标权限不足（fina_indicator）",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
