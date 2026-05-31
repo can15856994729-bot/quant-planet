@@ -281,7 +281,7 @@ function SingleTradeCard({ t, idx }: { t: STSingleTradeRecord; idx: number }) {
 
 function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTradeRecord[]; stockName: string; symbol: string }) {
   const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? trades : trades.slice(0, 8);
+  const shown = showAll ? trades : trades.slice(0, 15);
 
   if (!trades || trades.length === 0) return (
     <div className="py-8 text-center">
@@ -312,7 +312,7 @@ function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTrade
       </div>
       {/* 卡片列表 */}
       {shown.map((t, i) => <SingleTradeCard key={t.tradeId ?? i} t={t} idx={i} />)}
-      {trades.length > 8 && (
+      {trades.length > 15 && (
         <button onClick={() => setShowAll(s => !s)}
           className="w-full py-2.5 rounded-xl text-[11px] font-bold"
           style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>

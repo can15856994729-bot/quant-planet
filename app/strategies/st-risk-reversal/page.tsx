@@ -493,7 +493,8 @@ function STStrategyContent() {
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
       <PageHeader title="ST 风险反转策略" />
 
-      <div className="px-4 pt-4 space-y-4 pb-24">
+      <div className="px-4 pt-4 space-y-4"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 96px)" }}>
 
         {/* ── 风险警告 ──────────────────────────────────────── */}
         <RiskBanner />

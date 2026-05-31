@@ -319,8 +319,7 @@ function TradeCard({ t, idx, name, symbol }: { t: TradeRecord; idx: number; name
 }
 
 function TradeCardList({ trades, name, symbol }: { trades: TradeRecord[]; name: string; symbol: string }) {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? trades : trades.slice(0, 6);
+  // 详情覆盖层已有独立滚动区域，直接渲染全部交易，无需分页
   if (!trades || trades.length === 0) return (
     <div className="py-8 text-center">
       <p className="text-[12px] font-bold" style={{ color: Y }}>本次回测没有产生交易</p>
@@ -343,14 +342,8 @@ function TradeCardList({ trades, name, symbol }: { trades: TradeRecord[]; name: 
           </span>
         ))}
       </div>
-      {shown.map((t, i) => <TradeCard key={t.tradeId ?? i} t={t} idx={i} name={name} symbol={symbol} />)}
-      {trades.length > 6 && (
-        <button onClick={() => setShowAll(s => !s)}
-          className="w-full py-2.5 rounded-xl text-[11px] font-bold"
-          style={{ background: "#0a1628", color: MID, border: `1px solid ${BORDER}` }}>
-          {showAll ? "收起" : `查看全部 ${trades.length} 笔交易`}
-        </button>
-      )}
+      {/* 全部交易记录：覆盖层自带滚动，无需截断 */}
+      {trades.map((t, i) => <TradeCard key={t.tradeId ?? i} t={t} idx={i} name={name} symbol={symbol} />)}
     </div>
   );
 }
@@ -414,10 +407,15 @@ function DetailOverlay({ r, onClose }: { r: ScanStockResult; onClose: () => void
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#07111F" }}>
-      {/* ── 顶部标题 */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-        style={{ background: CARD, borderBottom: `1px solid ${BORDER}` }}>
+    /* z-[200]：确保浮层在 BottomNav(z-50) 之上，避免底部导航遮挡内容 */
+    <div className="fixed inset-0 flex flex-col" style={{ background: "#07111F", zIndex: 200 }}>
+      {/* ── 顶部标题：header-safe-pt 适配状态栏安全区 */}
+      <div className="flex items-center justify-between px-4 pb-3 flex-shrink-0"
+        style={{
+          background: CARD,
+          borderBottom: `1px solid ${BORDER}`,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+        }}>
         <div>
           <div className="flex items-center gap-2">
             <p className="font-black text-[16px]" style={{ color: "#F8FAFC" }}>{r.name}</p>
@@ -463,8 +461,16 @@ function DetailOverlay({ r, onClose }: { r: ScanStockResult; onClose: () => void
         </div>
       </div>
 
-      {/* ── Tab 内容（可滚动） */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      {/* ── Tab 内容（独立滚动区域）
+          min-height: 0 是关键：允许 flex 子元素压缩到小于内容高度，启用 overflow-y 滚动
+          padding-bottom 保留底部安全区，避免最后一条记录贴边 */}
+      <div className="flex-1 overflow-y-auto px-4 py-3"
+        style={{
+          minHeight: 0,
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)",
+        }}>
         {tab === "equity" && <MiniEquity equity={r.equity ?? []} />}
         {tab === "kline"  && <MiniKline  klines={r.klineSignals ?? []} />}
         {tab === "trades" && (
