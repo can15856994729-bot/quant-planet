@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers } from "lucide-react";
+import { Search, ChevronRight, ShieldAlert, Activity, BarChart3, Download, Trophy, Flame, ArrowUpDown, Layers, PieChart } from "lucide-react";
 import { MOCK_STRATEGIES } from "@/lib/mock-data";
 import HomeStrategySignalCard from "@/components/ui/HomeStrategySignalCard";
 import HomeSimAccountCard from "@/components/ui/HomeSimAccountCard";
@@ -63,19 +63,20 @@ export default function HomePage() {
 
       {/* 快捷入口 */}
       <div className="px-4 mb-5">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-1.5">
           {[
-            { href: "/ranking",      icon: Trophy,      label: "排行榜",  color: "#FACC15" },
-            { href: "/ranking",      icon: Flame,       label: "涨幅榜",  color: "#EF4444" },
-            { href: "/ranking",      icon: ArrowUpDown, label: "量比榜",  color: "#00E5A8" },
-            { href: "/strategies",   icon: Layers,      label: "策略库",  color: "#3B82F6" },
+            { href: "/ranking",    icon: Trophy,      label: "排行榜",  color: "#FACC15" },
+            { href: "/ranking",    icon: Flame,       label: "涨幅榜",  color: "#EF4444" },
+            { href: "/ranking",    icon: ArrowUpDown, label: "量比榜",  color: "#00E5A8" },
+            { href: "/strategies", icon: Layers,      label: "策略库",  color: "#3B82F6" },
+            { href: "/sectors",    icon: PieChart,    label: "板块",    color: "#A78BFA" },
           ].map(({ href, icon: Icon, label, color }) => (
             <Link key={label} href={href}>
               <div className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl active:opacity-70"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center"
                   style={{ background: `${color}18`, border: `1px solid ${color}25` }}>
-                  <Icon size={17} color={color} />
+                  <Icon size={15} color={color} />
                 </div>
                 <span className="text-[11px] font-semibold" style={{ color: "#94A3B8" }}>{label}</span>
               </div>
