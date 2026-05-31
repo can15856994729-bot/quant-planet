@@ -9,6 +9,7 @@ import StockDetailClient from "./StockDetailClient";
 import StockPriceCard from "./StockPriceCard";
 import WatchlistButton from "@/components/ui/WatchlistButton";
 import FinancialReport from "@/components/financial/FinancialReport";
+import MoneyFlowCard from "@/components/MoneyFlowCard";
 import type { Stock } from "@/types";
 
 /** 股票代码 → Tushare ts_code（纯字符串工具，服务端使用） */
@@ -234,6 +235,14 @@ export default async function StockDetailPage({
             以上技术指标基于历史数据计算，仅供参考，不构成投资建议。
           </p>
         </div>
+
+        {/* 资金流模块（仅 A 股） */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <div>
+            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>资金流向</h2>
+            <MoneyFlowCard symbol={stock.symbol} />
+          </div>
+        )}
 
         {/* ─────────────────────────────────────────────────────────
             财报分析模块（仅 A 股，6 位代码）

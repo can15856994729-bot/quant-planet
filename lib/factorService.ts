@@ -25,6 +25,20 @@ export interface QuoteData {
   pb?: number;  // PB,     from EM f23/100
 }
 
+/**
+ * 真实资金流数据（可选，来自东方财富）
+ * 若不传则使用成交量代理，若传入则融合真实资金流评分。
+ */
+export interface RealMoneyFlowData {
+  mainNetInflow:       number | null;  // 今日主力净流入（元）
+  fiveDayMainNetInflow: number | null; // 5日主力净流入（元）
+  tenDayMainNetInflow:  number | null; // 10日主力净流入（元）
+  superLargeNetInflow:  number | null; // 超大单净流入（元）
+  mainNetInflowPercent: number | null; // 主力净流入占比 (%)
+  source: "EastMoney";
+  unavailable?: false;
+}
+
 export interface FactorScores {
   // Raw 0-100 per factor
   trendScore:     number;
@@ -79,7 +93,9 @@ function annualVol(arr: number[], days: number): number | null {
 // ── Main scoring ──────────────────────────────────────────────────
 export function calculateFactorScores(
   klines: KLineBar[],
-  quote: QuoteData
+  quote: QuoteData,
+  /** 可选：来自东方财富的真实资金流数据（权重 15%，不可用时降级为量比代理） */
+  realMoneyFlow?: RealMoneyFlowData | null
 ): FactorScores {
   const closes  = klines.map(k => k.close);
   const volumes = klines.map(k => k.volume);
@@ -173,27 +189,74 @@ export function calculateFactorScores(
     vHasData = true;
   }
 
-  // ── 5. Money Flow Factor (weight 15%) — volume proxy ─────────
+  // ── 5. Money Flow Factor (weight 15%) ────────────────────────
+  // 优先使用真实资金流（东方财富），降级时使用成交量代理
   let fRaw = 50;
   const fParts: string[] = [];
-  const vol20 = ma(volumes, 20);
+  const vol20   = ma(volumes, 20);
   const volLast = volumes[volumes.length - 1] ?? 0;
+  let moneyFlowUnavailable = false;
 
-  if (vol20 && vol20 > 0) {
-    const vr = volLast / vol20;
-    if (vr > 2.0)      { fRaw += 28; fParts.push(`量比${vr.toFixed(1)}x放量`); reasons.push(`成交量放大${vr.toFixed(1)}倍`); }
-    else if (vr > 1.3) { fRaw += 12; fParts.push(`量比${vr.toFixed(1)}x`); }
-    else if (vr < 0.5) { fRaw -= 15; fParts.push("缩量"); }
+  if (realMoneyFlow && realMoneyFlow.mainNetInflow !== null) {
+    // ── 真实资金流路径 ──
+    const mni     = realMoneyFlow.mainNetInflow;
+    const mni5    = realMoneyFlow.fiveDayMainNetInflow;
+    const mni10   = realMoneyFlow.tenDayMainNetInflow;
+    const mniPct  = realMoneyFlow.mainNetInflowPercent;
+    const superLg = realMoneyFlow.superLargeNetInflow;
+
+    // 今日主力净流入
+    if (mni > 0) {
+      if (mniPct !== null && mniPct > 3) { fRaw += 30; fParts.push(`主力净流入${mniPct.toFixed(1)}%`); reasons.push("主力大幅净买入"); }
+      else if (mniPct !== null && mniPct > 1) { fRaw += 18; fParts.push(`主力净流入${mniPct.toFixed(1)}%`); }
+      else { fRaw += 10; fParts.push("主力净流入"); }
+    } else if (mni < 0) {
+      const outPct = mniPct !== null ? Math.abs(mniPct) : 0;
+      if (outPct > 3) { fRaw -= 30; warnings.push(`主力大幅净流出${outPct.toFixed(1)}%`); fParts.push("主力大幅流出"); }
+      else if (outPct > 1) { fRaw -= 18; fParts.push("主力净流出"); warnings.push("主力资金流出"); }
+      else { fRaw -= 8; fParts.push("主力小幅流出"); }
+    } else {
+      fParts.push("主力中性");
+    }
+
+    // 5日趋势加分
+    if (mni5 !== null) {
+      if (mni5 > 0) { fRaw += 12; fParts.push("5日净流入"); }
+      else if (mni5 < 0) { fRaw -= 12; fParts.push("5日净流出"); warnings.push("5日主力持续流出"); }
+    }
+
+    // 10日趋势加分
+    if (mni10 !== null) {
+      if (mni10 > 0) { fRaw += 8; }
+      else if (mni10 < 0) { fRaw -= 8; }
+    }
+
+    // 超大单净流入（机构级别）
+    if (superLg !== null) {
+      if (superLg > 0) { fRaw += 8; fParts.push("超大单买入"); reasons.push("超大单净流入（机构买入信号）"); }
+      else if (superLg < 0) { fRaw -= 8; warnings.push("超大单净流出（机构卖出信号）"); }
+    }
+
+  } else {
+    // ── 量比代理路径（无真实资金流时） ──
+    moneyFlowUnavailable = (realMoneyFlow === null); // 明确传 null 代表请求过但不可用
+    if (vol20 && vol20 > 0) {
+      const vr = volLast / vol20;
+      if (vr > 2.0)      { fRaw += 28; fParts.push(`量比${vr.toFixed(1)}x放量`); reasons.push(`成交量放大${vr.toFixed(1)}倍`); }
+      else if (vr > 1.3) { fRaw += 12; fParts.push(`量比${vr.toFixed(1)}x`); }
+      else if (vr < 0.5) { fRaw -= 15; fParts.push("缩量"); }
+    }
+    const vol5 = ma(volumes, 5);
+    if (vol5 && vol20 && vol5 > vol20 * 1.2) { fRaw += 8; fParts.push("5日量能持续放大"); }
+
+    const recent5 = klines.slice(-5);
+    const hvDownDays = recent5.filter(b => b.close < b.open && vol20 && b.volume > vol20 * 1.5).length;
+    if (hvDownDays >= 2) { fRaw -= 20; warnings.push("近期放量下跌，资金流出信号"); }
+
+    if (fParts.length === 0) fParts.push("成交量平稳");
+    if (moneyFlowUnavailable) fParts.push("（资金流因子暂缺，使用量比代理）");
   }
-  const vol5 = ma(volumes, 5);
-  if (vol5 && vol20 && vol5 > vol20 * 1.2) { fRaw += 8; fParts.push("5日量能持续放大"); }
 
-  // Recent high-volume down days
-  const recent5 = klines.slice(-5);
-  const hvDownDays = recent5.filter(b => b.close < b.open && vol20 && b.volume > vol20 * 1.5).length;
-  if (hvDownDays >= 2) { fRaw -= 20; warnings.push("近期放量下跌，资金流出信号"); }
-
-  if (fParts.length === 0) fParts.push("成交量平稳");
   const moneyFlowScore = Math.max(0, Math.min(100, fRaw));
 
   // ── 6. Risk Factor (weight 5%) — volatility ───────────────────
@@ -210,7 +273,8 @@ export function calculateFactorScores(
   const riskScore = Math.max(0, Math.min(100, rRaw));
 
   // ── Composite (weights: trend 25%, momentum 20%, quality 20%, valuation 15%, flow 15%, risk 5%) ─
-  const dataCompleteness = [true, true, qHasData, vHasData, true, true].filter(Boolean).length / 6;
+  const flowHasRealData = !!(realMoneyFlow && realMoneyFlow.mainNetInflow !== null);
+  const dataCompleteness = [true, true, qHasData, vHasData, flowHasRealData, true].filter(Boolean).length / 6;
   const totalScore = Math.round(
     trendScore     * 0.25 +
     momentumScore  * 0.20 +
@@ -221,6 +285,7 @@ export function calculateFactorScores(
   );
 
   if (totalScore >= 75) reasons.push(`综合评分 ${totalScore}（候选买入）`);
+  if (moneyFlowUnavailable) warnings.push("资金流因子暂缺，使用成交量代理（评分仅供参考）");
 
   return {
     trendScore, momentumScore, qualityScore, valuationScore, moneyFlowScore, riskScore,

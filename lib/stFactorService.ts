@@ -48,14 +48,28 @@ export interface STBar {
   pctChg: number;  // 涨跌幅 %
 }
 
+/**
+ * 东方财富资金流数据（可选接入，来自 /api/eastmoney/money-flow/stock/[symbol]）
+ * 不传 → 降级使用量比代理；传入 null → 已请求但数据不可用
+ */
+export interface STMoneyFlowData {
+  mainNetInflow:        number | null;  // 今日主力净流入（元）
+  fiveDayMainNetInflow: number | null;  // 5日主力净流入
+  superLargeNetInflow:  number | null;  // 超大单净流入（元）
+  mainNetInflowPercent: number | null;  // 主力净流入占比(%)
+  source: "EastMoney";
+}
+
 export interface STFactorResult {
   // 各维度得分 0-100
-  trendScore:       number;   // 趋势修复（MA三线共振）
-  volumeSurgeScore: number;   // 量能突破（聪明钱代理指标，v2新增）
-  liquidityScore:   number;   // 流动性（绝对成交额）
-  momentumScore:    number;   // 动量（5日/20日）
-  riskPenalty:      number;   // 风险惩罚（越高惩罚越重）
-  totalScore:       number;   // 0-100 综合
+  trendScore:        number;   // 趋势修复（MA三线共振）
+  volumeSurgeScore:  number;   // 量能突破（聪明钱代理指标，v2新增）
+  liquidityScore:    number;   // 流动性（绝对成交额）
+  momentumScore:     number;   // 动量（5日/20日）
+  moneyFlowScore:    number;   // 资金流因子（真实东财数据，不可用时=volumeSurgeScore）
+  riskPenalty:       number;   // 风险惩罚（越高惩罚越重）
+  totalScore:        number;   // 0-100 综合
+  moneyFlowAvailable: boolean; // 资金流真实数据是否可用
 
   // 向后兼容（原有字段保留）
   fundamentalScore: number;   // 固定0（v2已去除占位）
@@ -77,6 +91,7 @@ export interface STFactorResult {
   volumeSurgeDetail: string;
   liquidityDetail:   string;
   momentumDetail:    string;
+  moneyFlowDetail:   string;   // 资金流详情
   fundamentalNote:   string;  // 保留字段
   catalystNote:      string;  // 保留字段
   riskDetail:        string;
@@ -93,7 +108,11 @@ function ma(arr: number[], period: number): number | null {
 function isLimitDown(pctChg: number): boolean { return pctChg <= -9.3; }
 
 // ── Main ST scoring v2 ───────────────────────────────────────────────
-export function calculateSTFactorScores(bars: STBar[]): STFactorResult {
+export function calculateSTFactorScores(
+  bars: STBar[],
+  /** 可选：东方财富资金流数据。传 null 表示已请求但不可用（降级量比代理）。 */
+  moneyFlow?: STMoneyFlowData | null
+): STFactorResult {
   const closes  = bars.map((b) => b.close);
   const amounts = bars.map((b) => b.amount);
   const vols    = bars.map((b) => b.volume);
@@ -336,14 +355,75 @@ export function calculateSTFactorScores(bars: STBar[]): STFactorResult {
     : "无重大风险惩罚项";
 
   // ════════════════════════════════════════════════════════════════
-  // 综合得分（v2 新权重）
-  // trend 35% | volumeSurge 30% | liquidity 20% | momentum 15%
+  // 资金流因子（真实数据 or 降级到 volumeSurgeScore）
+  // 权重合并到 volumeSurge 中（不单独加权，避免双重计算）
   // ════════════════════════════════════════════════════════════════
+  let moneyFlowScore    = volumeSurgeScore; // 默认与量能突破相同（代理）
+  let moneyFlowDetail   = "（量比代理）";
+  let moneyFlowAvailable = false;
+  let mfBonus = 0; // 额外加/减分（叠加到总分，不替换权重）
+
+  if (moneyFlow && moneyFlow.mainNetInflow !== null) {
+    moneyFlowAvailable = true;
+    const mni    = moneyFlow.mainNetInflow;
+    const mni5   = moneyFlow.fiveDayMainNetInflow;
+    const mniPct = moneyFlow.mainNetInflowPercent;
+    const slni   = moneyFlow.superLargeNetInflow;
+    const parts: string[] = [];
+
+    // 今日主力净流入方向
+    if (mni > 0) {
+      const pctInfo = mniPct !== null ? ` 占比${mniPct.toFixed(1)}%` : "";
+      if (mniPct !== null && mniPct > 3) {
+        mfBonus += 12; parts.push(`主力大幅净买入${pctInfo}`); reasons.push(`主力资金大幅买入（占比${mniPct.toFixed(1)}%）`);
+      } else {
+        mfBonus += 6; parts.push(`主力净买入${pctInfo}`);
+      }
+    } else if (mni < 0) {
+      const pctInfo = mniPct !== null ? ` 占比${Math.abs(mniPct).toFixed(1)}%` : "";
+      if (mniPct !== null && Math.abs(mniPct) > 3) {
+        mfBonus -= 12; warnings.push(`主力大幅净卖出${pctInfo}，跌停打开仍流出`); parts.push("主力大幅流出");
+      } else {
+        mfBonus -= 6; warnings.push("主力资金净流出"); parts.push("主力净流出");
+      }
+    } else {
+      parts.push("主力中性");
+    }
+
+    // 5日趋势
+    if (mni5 !== null) {
+      if (mni5 > 0) { mfBonus += 5; parts.push("5日持续买入"); }
+      else if (mni5 < 0) { mfBonus -= 5; warnings.push("5日主力持续流出"); parts.push("5日持续卖出"); }
+    }
+
+    // 超大单（机构信号）
+    if (slni !== null) {
+      if (slni > 0) { mfBonus += 5; reasons.push("超大单净流入（机构建仓信号）"); parts.push("超大单买入"); }
+      else if (slni < 0) { mfBonus -= 5; warnings.push("超大单净流出（机构撤退信号）"); }
+    }
+
+    // 计算资金流得分（在量能分基础上调整）
+    moneyFlowScore = Math.max(0, Math.min(100, volumeSurgeScore + mfBonus * 2));
+    moneyFlowDetail = parts.join(" / ") || "资金流中性";
+  } else if (moneyFlow === null) {
+    // 明确传 null = 请求过但不可用
+    moneyFlowDetail   = "资金流数据暂缺，使用量比代理";
+    warnings.push("资金流因子暂缺，资金评分仅供参考");
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 综合得分（v2 新权重）
+  // trend 35% | volumeSurge 25% | liquidity 20% | momentum 15% | moneyFlowBonus 5%
+  // ════════════════════════════════════════════════════════════════
+  const moneyFlowWeight = moneyFlowAvailable ? 0.05 : 0;
+  const volumeWeight    = moneyFlowAvailable ? 0.25 : 0.30;
+
   const raw =
     trendScore       * 0.35 +
-    volumeSurgeScore * 0.30 +
+    volumeSurgeScore * volumeWeight +
     liquidityScore   * 0.20 +
-    momentumScore    * 0.15;
+    momentumScore    * 0.15 +
+    (moneyFlowAvailable ? moneyFlowScore * moneyFlowWeight : 0);
 
   const totalScore = Math.max(0, Math.min(100, Math.round(raw - riskPenalty)));
 
@@ -365,6 +445,8 @@ export function calculateSTFactorScores(bars: STBar[]): STFactorResult {
     volumeSurgeScore,
     liquidityScore,
     momentumScore,
+    moneyFlowScore,
+    moneyFlowAvailable,
     fundamentalScore: 0,  // v2 已去除，保留字段兼容
     catalystScore:    0,  // v2 已去除，保留字段兼容
     riskPenalty,
@@ -381,6 +463,7 @@ export function calculateSTFactorScores(bars: STBar[]): STFactorResult {
     trendDetail,
     volumeSurgeDetail,
     liquidityDetail,
+    moneyFlowDetail,
     momentumDetail: [
       ret5  !== null ? `5日收益 ${ret5  > 0 ? "+" : ""}${ret5.toFixed(1)}%`  : "5日数据不足",
       ret20 !== null ? `20日收益 ${ret20 > 0 ? "+" : ""}${ret20.toFixed(1)}%` : "20日数据不足",
