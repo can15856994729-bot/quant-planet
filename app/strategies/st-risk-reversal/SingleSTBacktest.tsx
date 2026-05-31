@@ -10,6 +10,7 @@ import {
   AreaChart, Area,
 } from "recharts";
 import { AlertTriangle, Play, Activity, Info, Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import type { STCandidateEntry } from "@/lib/stScanStorage";
 
 // ── 颜色 ─────────────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -381,11 +382,59 @@ function RiskEventList({ events }: { events: STSingleRiskEvent[] }) {
   );
 }
 
+// ── 从候选池缓存构建回测结果 ──────────────────────────────────────────
+function buildCachedResult(entry: STCandidateEntry): STSingleResult | null {
+  const cr = entry.cachedResult;
+  if (!cr) return null;
+  const sp = entry.scanParams;
+  const scannedDate = new Date(entry.scannedAt).toLocaleDateString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  return {
+    status:        entry.tradeCount > 0 ? "ok" : "no_trades",
+    statusMessage: entry.tradeCount > 0 ? "" : "扫描时无交易信号",
+    statusReason:  entry.tradeCount === 0
+      ? "历史扫描结果：本股票在回测期间未产生任何买入信号" : undefined,
+    totalReturn:   entry.totalReturn,
+    annualReturn:  entry.annualReturn,
+    maxDrawdown:   entry.maxDrawdown,
+    sharpeRatio:   entry.sharpeRatio,
+    winRate:       entry.winRate,
+    profitFactor:  entry.profitFactor,
+    initialCapital: entry.initialCapital,
+    finalCapital:   entry.finalCapital,
+    totalTrades:   entry.tradeCount,
+    buyCount:      entry.tradeCount,
+    stopLossCount: entry.stopLossCount,
+    takeProfitCount: entry.takeProfitCount,
+    limitDownCannotSellCount: entry.limitDownCannotSellCount,
+    suspendedDays: entry.suspendedDays,
+    maxConsecutiveLosses: entry.maxConsecutiveLosses,
+    avgHoldDays:   entry.avgHoldDays,
+    cashDays:      0,
+    equity:       cr.equity,
+    drawdown:     cr.drawdown,
+    trades:       cr.trades       as STSingleTradeRecord[],
+    riskEvents:   cr.riskEvents   as STSingleRiskEvent[],
+    klineSignals: cr.klineSignals as STSingleKlineSignal[],
+    diagnostics:  ((cr.diagnostics ?? null) as STSingleResult["diagnostics"] | null) ?? {
+      klineCount: 0, tradingDays: 0, buySignalCount: entry.tradeCount,
+      cannotTradeCount: 0, limitDownCannotSellCount: entry.limitDownCannotSellCount,
+      dataSource: "tushare (cached)",
+    },
+    source:      "tushare",
+    note:        `扫描时间：${scannedDate} · ${sp.dateRange} · ${sp.scoreMode} 模式 · 初始资金 ¥${(sp.initialCapital / 10000).toFixed(0)}万`,
+    scoreMode:   cr.scoreMode,
+    dataQuality: cr.dataQuality,
+  };
+}
+
 // ── 主组件 ────────────────────────────────────────────────────────────
 interface Props {
   stStocks:      STStock[];
   tushareOk:     boolean | null;
-  initialStock?: STStock;  // 从候选池跳转时预选的股票
+  initialStock?: STStock;          // 从候选池跳转时预选的股票（仅基础信息）
+  initialEntry?: STCandidateEntry; // 候选池完整条目（含缓存回测结果，优先级高于 initialStock）
 }
 
 type SMode = "conservative" | "standard" | "aggressive" | "debug";
@@ -393,7 +442,7 @@ const SCORE_LABELS: Record<SMode, string> = {
   conservative: "保守 ≥70", standard: "标准 ≥58", aggressive: "激进 ≥45", debug: "调试 ≥30",
 };
 
-export default function SingleSTBacktest({ stStocks, tushareOk, initialStock }: Props) {
+export default function SingleSTBacktest({ stStocks, tushareOk, initialStock, initialEntry }: Props) {
   const [search,       setSearch]       = useState("");
   const [selected,     setSelected]     = useState<STStock | null>(null);
   const [showSearch,   setShowSearch]   = useState(false);
@@ -415,22 +464,66 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock }: 
   const [activeTab,       setActiveTab]       = useState<"kline"|"equity"|"trades"|"risk"|"diag">("kline");
 
   // 状态
-  const [running,     setRunning]     = useState(false);
-  const [result,      setResult]      = useState<STSingleResult | null>(null);
-  const [resultError, setResultError] = useState<string | null>(null);
+  const [running,         setRunning]         = useState(false);
+  const [result,          setResult]          = useState<STSingleResult | null>(null);
+  const [resultError,     setResultError]     = useState<string | null>(null);
+  // 来自候选池的状态
+  const [isFromPoolCache, setIsFromPoolCache] = useState(false);
+  const [fromPoolMeta,    setFromPoolMeta]    = useState<STCandidateEntry | null>(null);
 
-  // 当 initialStock 变化时，自动选中该股票（来自候选池"查看回测详情"跳转）
+  // 当 initialEntry / initialStock 变化时，自动处理来自候选池的跳转
   useEffect(() => {
-    if (initialStock) {
-      setSelected(initialStock);
-      setSearch("");
-      setShowSearch(false);
-      setNonSTConfirm(false);
+    // initialEntry 优先级高于 initialStock（含完整缓存结果）
+    const entry = initialEntry ?? null;
+    const stock: STStock | null = entry
+      ? { tsCode: entry.tsCode, symbol: entry.symbol, name: entry.name,
+          industry: entry.industry, stType: entry.stType, listDate: "", exchange: "" }
+      : initialStock ?? null;
+
+    // 无论如何，先清空候选池状态（防止残留横幅）
+    setIsFromPoolCache(false);
+    setFromPoolMeta(null);
+
+    if (!stock) return; // 没有股票可选，不改变其他状态
+
+    setSelected(stock);
+    setSearch("");
+    setShowSearch(false);
+    setNonSTConfirm(false);
+
+    if (entry) {
+      setFromPoolMeta(entry);
+      // 同步原扫描参数到 UI，使「重新回测」能复现相同条件
+      const sp = entry.scanParams;
+      setDateRange(sp.dateRange as "近1年" | "近2年" | "近3年");
+      setCapital(sp.initialCapital);
+      setPositionRatio(sp.positionRatio);
+      setStopLoss(sp.stopLossRate);
+      setHalfProfit(sp.halfProfitRate);
+      setFullProfit(sp.fullProfitRate);
+      setMaxHoldDays(sp.maxHoldDays);
+      setScoreMode(sp.scoreMode as SMode);
+      setMinAmount(sp.minAmount20d);
+      setEnableFees(sp.enableFees);
+      setEnableLimit(sp.enableLimitFilter);
+      // 尝试使用缓存结果，直接渲染，无需重新调用 API
+      const built = buildCachedResult(entry);
+      if (built) {
+        setResult(built);
+        setResultError(null);
+        setIsFromPoolCache(true);
+        setActiveTab("kline");
+      } else {
+        // cachedResult 已被压缩（存储空间不足），保留 meta 以显示提示
+        setResult(null);
+        setResultError(null);
+      }
+    } else {
       setResult(null);
       setResultError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialStock?.tsCode]);
+  }, [initialEntry?.tsCode, initialStock?.tsCode]);
 
   const startDate = useMemo(() => {
     const n = dateRange === "近1年" ? 1 : dateRange === "近2年" ? 2 : 3;
@@ -465,6 +558,7 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock }: 
     if (!selected || !tushareOk) return;
     if (!isRealST && !nonSTConfirm) return;
     setRunning(true); setResult(null); setResultError(null);
+    setIsFromPoolCache(false); setFromPoolMeta(null); // 开始新回测，清除候选池缓存状态
     try {
       const res = await fetch("/api/tushare/st-single-backtest", {
         method: "POST",
@@ -820,11 +914,51 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock }: 
         </div>
       )}
 
+      {/* 候选池详情缓存已清除提示（存储空间不足时 cachedResult 被裁剪） */}
+      {fromPoolMeta && !isFromPoolCache && !result && !resultError && (
+        <div className="p-3 rounded-xl flex items-start gap-2"
+          style={{ background: "rgba(250,204,21,0.07)", border: `1px solid ${Y}44` }}>
+          <AlertTriangle size={13} color={Y} className="flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-bold text-[12px]" style={{ color: Y }}>历史扫描详情已清除</p>
+            <p className="text-[10px] mt-1" style={{ color: MID }}>
+              存储空间不足时，详细数据会被自动压缩。已预选「{fromPoolMeta.name}（{fromPoolMeta.symbol}）」，
+              请点击下方「运行回测」重新获取完整结果。
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════
           单只股票回测结果
       ══════════════════════════════════════════════ */}
       {result && (
         <div className="space-y-3">
+
+          {/* 来自候选池扫描结果横幅 */}
+          {isFromPoolCache && fromPoolMeta && (
+            <div className="px-3 py-2.5 rounded-xl flex items-center justify-between gap-2"
+              style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)" }}>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold" style={{ color: B }}>📋 来自候选池扫描结果</p>
+                <p className="text-[9px] mt-0.5" style={{ color: DIM }}>
+                  扫描于 {new Date(fromPoolMeta.scannedAt).toLocaleDateString("zh-CN")} ·{" "}
+                  {fromPoolMeta.scanParams.dateRange} · {fromPoolMeta.scanParams.scoreMode} 模式
+                </p>
+              </div>
+              <button
+                onClick={handleRun}
+                disabled={!tushareOk || running}
+                className="px-3 py-1.5 rounded-xl text-[10px] font-bold flex-shrink-0"
+                style={{
+                  background: tushareOk && !running ? "rgba(59,130,246,0.15)" : "#0a1628",
+                  color:      tushareOk && !running ? B : DIM,
+                  border: `1px solid ${tushareOk && !running ? "rgba(59,130,246,0.3)" : BORDER}`,
+                }}>
+                重新回测
+              </button>
+            </div>
+          )}
 
           {/* 无交易信号 */}
           {result.status !== "ok" && (

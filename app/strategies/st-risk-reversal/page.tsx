@@ -407,8 +407,9 @@ function STStrategyContent() {
   const [showAdvanced,   setShowAdvanced]   = useState(false);
   const [activeTab,      setActiveTab]      = useState<"equity"|"drawdown"|"trades"|"risk">("equity");
   const [showDiag,       setShowDiag]       = useState(false);
-  const [pageMode,       setPageMode]       = useState<"pool" | "single" | "scan" | "candidates">("pool");
+  const [pageMode,           setPageMode]           = useState<"pool" | "single" | "scan" | "candidates">("pool");
   const [initialSingleStock, setInitialSingleStock] = useState<STStock | null>(null);
+  const [initialSingleEntry, setInitialSingleEntry] = useState<STCandidateEntry | null>(null);
 
   const [running,     setRunning]     = useState(false);
   const [result,      setResult]      = useState<STResult | null>(null);
@@ -639,7 +640,11 @@ function STStrategyContent() {
           ]).map(({ k, icon, label }) => {
             const isActive = pageMode === k;
             return (
-              <button key={k} onClick={() => setPageMode(k)}
+              <button key={k} onClick={() => {
+                setPageMode(k);
+                // 直接点击「单只」tab 时，清除候选池跳转状态，避免残留缓存结果横幅
+                if (k === "single") { setInitialSingleStock(null); setInitialSingleEntry(null); }
+              }}
                 className="py-2.5 rounded-2xl text-[11px] font-black flex flex-col items-center gap-0.5"
                 style={{
                   background: isActive ? "rgba(239,68,68,0.18)" : CARD,
@@ -1118,6 +1123,7 @@ function STStrategyContent() {
             stStocks={stStocks}
             tushareOk={tushareOk}
             initialStock={initialSingleStock ?? undefined}
+            initialEntry={initialSingleEntry ?? undefined}
           />
         )}
 
@@ -1130,7 +1136,8 @@ function STStrategyContent() {
         {pageMode === "candidates" && (
           <STCandidatePool
             onViewDetail={(candidate: STCandidateEntry) => {
-              // 将候选股票转换为 STStock 格式，切换到单只回测
+              // 传入完整候选条目（含 cachedResult），让 SingleSTBacktest 直接渲染缓存结果
+              setInitialSingleEntry(candidate);
               setInitialSingleStock({
                 tsCode:   candidate.tsCode,
                 symbol:   candidate.symbol,
