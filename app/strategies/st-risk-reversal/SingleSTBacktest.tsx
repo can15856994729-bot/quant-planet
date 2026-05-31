@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { AlertTriangle, Play, Activity, Info, Search, X, ChevronDown, ChevronUp } from "lucide-react";
 import type { STCandidateEntry } from "@/lib/stScanStorage";
+import TradeKlineModal from "@/components/backtest/TradeKlineModal";
 
 // ── 颜色 ─────────────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -207,13 +208,21 @@ function EquityChartSingle({ equity }: { equity: { date: string; value: number }
 }
 
 // ── 交易卡片（移动端友好，可展开） ────────────────────────────────────
-function SingleTradeCard({ t, idx }: { t: STSingleTradeRecord; idx: number }) {
+function SingleTradeCard({
+  t, idx, onViewKline,
+}: {
+  t: STSingleTradeRecord;
+  idx: number;
+  onViewKline: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isP = t.pnl >= 0;
   return (
     <div className="rounded-2xl overflow-hidden"
       style={{ background: CARD, border: `1px solid ${isP ? G+"33" : R+"33"}` }}>
-      <button onClick={() => setExpanded(e => !e)} className="w-full text-left p-3">
+
+      {/* 折叠/展开区域：用 div 替代 button，允许内部嵌套 button */}
+      <div onClick={() => setExpanded(e => !e)} className="p-3 cursor-pointer">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-bold mb-1" style={{ color: DIM }}>交易 #{idx+1}</p>
@@ -244,11 +253,22 @@ function SingleTradeCard({ t, idx }: { t: STSingleTradeRecord; idx: number }) {
             </span>
           </div>
         </div>
-        <div className="flex items-center justify-end mt-1 gap-1">
-          <span className="text-[9px]" style={{ color: DIM }}>{expanded ? "收起" : "展开详情"}</span>
-          {expanded ? <ChevronUp size={11} color={DIM} /> : <ChevronDown size={11} color={DIM} />}
+
+        {/* 底部行：K线按钮（左） + 展开/收起（右） */}
+        <div className="flex items-center justify-between mt-2">
+          <button
+            onClick={e => { e.stopPropagation(); onViewKline(); }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold active:opacity-70"
+            style={{ background: "rgba(59,130,246,0.12)", color: B, border: `1px solid rgba(59,130,246,0.3)` }}>
+            📈 K线区间
+          </button>
+          <div className="flex items-center gap-1">
+            <span className="text-[9px]" style={{ color: DIM }}>{expanded ? "收起" : "展开详情"}</span>
+            {expanded ? <ChevronUp size={11} color={DIM} /> : <ChevronDown size={11} color={DIM} />}
+          </div>
         </div>
-      </button>
+      </div>
+
       {expanded && (
         <div className="px-3 pb-3 border-t" style={{ borderColor: BORDER }}>
           <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 mt-2">
@@ -274,13 +294,27 @@ function SingleTradeCard({ t, idx }: { t: STSingleTradeRecord; idx: number }) {
               ))}
             </div>
           )}
+          {/* 展开详情中也显示 K线区间按钮 */}
+          <button
+            onClick={onViewKline}
+            className="mt-3 w-full py-2 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5"
+            style={{ background: "rgba(59,130,246,0.10)", color: B, border: `1px solid rgba(59,130,246,0.28)` }}>
+            📈 查看此笔交易的 K线区间图
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTradeRecord[]; stockName: string; symbol: string }) {
+function TradeDetailCards({
+  trades, stockName, symbol, onViewKline,
+}: {
+  trades: STSingleTradeRecord[];
+  stockName: string;
+  symbol: string;
+  onViewKline: (t: STSingleTradeRecord) => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? trades : trades.slice(0, 15);
 
@@ -312,7 +346,14 @@ function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTrade
         ))}
       </div>
       {/* 卡片列表 */}
-      {shown.map((t, i) => <SingleTradeCard key={t.tradeId ?? i} t={t} idx={i} />)}
+      {shown.map((t, i) => (
+        <SingleTradeCard
+          key={t.tradeId ?? i}
+          t={t}
+          idx={i}
+          onViewKline={() => onViewKline(t)}
+        />
+      ))}
       {trades.length > 15 && (
         <button onClick={() => setShowAll(s => !s)}
           className="w-full py-2.5 rounded-xl text-[11px] font-bold"
@@ -321,7 +362,7 @@ function TradeDetailCards({ trades, stockName, symbol }: { trades: STSingleTrade
         </button>
       )}
       <p className="text-[9px] px-1" style={{ color: DIM }}>
-        股票：{stockName}（{symbol}）· 点击每笔交易可展开手续费/印花税/滑点明细
+        股票：{stockName}（{symbol}）· 点击「📈 K线区间」查看该笔交易前后走势图
       </p>
     </div>
   );
@@ -470,6 +511,8 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock, in
   // 来自候选池的状态
   const [isFromPoolCache, setIsFromPoolCache] = useState(false);
   const [fromPoolMeta,    setFromPoolMeta]    = useState<STCandidateEntry | null>(null);
+  // K线区间弹窗：当前选中的交易
+  const [klineTarget,     setKlineTarget]     = useState<STSingleTradeRecord | null>(null);
 
   // 当 initialEntry / initialStock 变化时，自动处理来自候选池的跳转
   useEffect(() => {
@@ -584,6 +627,35 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock, in
   }
 
   return (
+    <>
+    {/* K线区间弹窗（z-300，覆盖全屏，含安全区适配） */}
+    {klineTarget && selected && (
+      <TradeKlineModal
+        trade={{
+          buyDate:       klineTarget.buyDate,
+          buyPrice:      klineTarget.buyPrice,
+          buyShares:     klineTarget.buyShares,
+          buyAmount:     klineTarget.buyAmount,
+          sellDate:      klineTarget.sellDate,
+          sellPrice:     klineTarget.sellPrice,
+          sellShares:    klineTarget.sellShares,
+          sellAmount:    klineTarget.sellAmount,
+          holdDays:      klineTarget.holdDays,
+          pnl:           klineTarget.pnl,
+          pnlPct:        klineTarget.pnlPct,
+          commission:    klineTarget.commission,
+          stampDuty:     klineTarget.stampDuty,
+          slippageCost:  klineTarget.slippageCost,
+          sellReason:    klineTarget.sellReason,
+          riskEvents:    klineTarget.riskEvents,
+        }}
+        tsCode={selected.tsCode}
+        stockName={selected.name}
+        symbol={selected.symbol}
+        onClose={() => setKlineTarget(null)}
+      />
+    )}
+
     <div className="space-y-4">
       {/* ── 股票搜索 ─────────────────────────────────────── */}
       <div>
@@ -1072,6 +1144,7 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock, in
                 trades={result.trades ?? []}
                 stockName={selected?.name ?? ""}
                 symbol={selected?.symbol ?? ""}
+                onViewKline={(t) => setKlineTarget(t)}
               />
             )}
 
@@ -1120,5 +1193,6 @@ export default function SingleSTBacktest({ stStocks, tushareOk, initialStock, in
         </div>
       )}
     </div>
+    </>
   );
 }
