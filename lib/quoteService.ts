@@ -14,6 +14,13 @@
 
 import { getStockBySymbol } from "./stockService";
 import { fetchAVQuote, fetchAVQuotesBatch, isUSSymbol, hasAVKey } from "./alphaVantage";
+import {
+  fetchOrderBook as _fetchOrderBook,
+  fetchBatchOrderBooks as _fetchBatchOrderBooks,
+} from "./eastMoneyOrderBookService";
+import type { OrderBookData } from "@/types";
+
+export type { OrderBookData };
 
 // ── 完整行情数据接口 ──────────────────────────────────────────────
 export interface QuoteData {
@@ -436,4 +443,80 @@ export async function fetchBatchQuotes(
   }
 
   return results;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 盘口数据代理（服务端专用）
+// 前端统一通过 /api/quotes/order-book/* 访问，不得直接调用本方法。
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * 获取单只 A 股五档盘口数据。
+ * 仅支持 A 股（6 位纯数字代码）。
+ */
+export async function getOrderBook(symbol: string): Promise<OrderBookData | null> {
+  const s = symbol.toUpperCase().trim();
+  if (!/^\d{6}$/.test(s)) return null;
+  return _fetchOrderBook(s);
+}
+
+/**
+ * 同时获取单只股票的行情 + 五档盘口（并发请求）。
+ */
+export async function getQuoteWithOrderBook(
+  symbol: string,
+): Promise<{ quote: QuoteData | null; orderBook: OrderBookData | null }> {
+  const [quote, orderBook] = await Promise.all([
+    fetchSingleQuote(symbol),
+    getOrderBook(symbol),
+  ]);
+  return { quote, orderBook };
+}
+
+/**
+ * 批量获取 A 股五档盘口数据。
+ * 非 A 股（非 6 位数字）自动跳过；失败的返回 null。
+ *
+ * @returns Record<SYMBOL_UPPERCASE, OrderBookData | null>
+ */
+export async function getBatchOrderBooks(
+  symbols: string[],
+): Promise<Record<string, OrderBookData | null>> {
+  const upper   = [...new Set(symbols.map(s => s.toUpperCase().trim()))];
+  const aShares = upper.filter(s => /^\d{6}$/.test(s));
+
+  // 初始化所有 symbol 为 null
+  const result: Record<string, OrderBookData | null> = {};
+  for (const s of upper) result[s] = null;
+
+  if (aShares.length === 0) return result;
+
+  const fetched = await _fetchBatchOrderBooks(aShares);
+  for (const [sym, data] of Object.entries(fetched)) {
+    result[sym] = data;
+  }
+  return result;
+}
+
+/**
+ * 批量获取行情 + 五档盘口数据合并（并发请求）。
+ *
+ * @returns Record<SYMBOL_UPPERCASE, { quote, orderBook }>
+ */
+export async function getBatchQuotesWithOrderBook(
+  symbols: string[],
+): Promise<Record<string, { quote: QuoteData | null; orderBook: OrderBookData | null }>> {
+  const upper = [...new Set(symbols.map(s => s.toUpperCase().trim()).filter(Boolean))];
+  const [quotes, orderBooks] = await Promise.all([
+    fetchBatchQuotes(upper),
+    getBatchOrderBooks(upper),
+  ]);
+  const result: Record<string, { quote: QuoteData | null; orderBook: OrderBookData | null }> = {};
+  for (const sym of upper) {
+    result[sym] = {
+      quote:     quotes[sym]     ?? null,
+      orderBook: orderBooks[sym] ?? null,
+    };
+  }
+  return result;
 }

@@ -9,7 +9,7 @@
  * Props:
  *   onViewDetail(candidate) — 点击"查看回测详情"时回调，page.tsx 切换到 single 模式
  */
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   AlertTriangle, Trash2, ChevronDown, ChevronUp,
   Search, X, RefreshCw, BarChart3, Clock, TrendingUp, Shield,
@@ -19,6 +19,8 @@ import {
   deleteScanRecord, clearHistory,
   type STCandidateEntry, type STScanRecord,
 } from "@/lib/stScanStorage";
+import type { OrderBookData } from "@/types";
+import { formatAmount } from "@/lib/orderBookUtils";
 
 // ── 颜色 ─────────────────────────────────────────────────────────────
 const R   = "#EF4444";
@@ -77,13 +79,103 @@ const FILTER_OPTIONS: { k: FilterKey; label: string }[] = [
   { k: "low_dd",    label: "📉低回撤" },
 ];
 
+// ── 盘口状态徽章 ─────────────────────────────────────────────────────
+function OrderBookStatus({
+  ob, loading,
+}: {
+  ob: OrderBookData | null | undefined;
+  loading?: boolean;
+}) {
+  // undefined = 未加载, null = 加载失败/暂无, OrderBookData = 有数据
+  if (ob === undefined) {
+    return loading ? (
+      <span className="text-[8px]" style={{ color: DIM }}>盘口加载中…</span>
+    ) : null;
+  }
+  if (ob === null) {
+    return <span className="text-[8px]" style={{ color: DIM }}>盘口暂不可用</span>;
+  }
+
+  const badges: React.ReactNode[] = [];
+
+  // ── 停牌 ──
+  if (ob.isSuspended) {
+    badges.push(
+      <span key="suspended" className="text-[8px] px-1.5 py-0.5 rounded font-bold"
+        style={{ background: "rgba(100,116,139,0.18)", color: MID, border: `1px solid ${MID}33` }}>
+        ⏸ 停牌
+      </span>
+    );
+  }
+
+  // ── 一字跌停 ──
+  if (!ob.isSuspended && ob.isOneWordLimitDown) {
+    badges.push(
+      <span key="one-word-ld" className="text-[8px] px-1.5 py-0.5 rounded font-bold"
+        style={{ background: `${R}18`, color: R, border: `1px solid ${R}44` }}>
+        🔒 一字跌停
+      </span>
+    );
+  }
+
+  // ── 跌停（非一字）+ 封单 ──
+  if (!ob.isSuspended && ob.isLimitDown && !ob.isOneWordLimitDown) {
+    badges.push(
+      <span key="limitdown" className="text-[8px] px-1.5 py-0.5 rounded font-bold"
+        style={{ background: `${R}18`, color: R, border: `1px solid ${R}44` }}>
+        ↓ 跌停
+      </span>
+    );
+  }
+  if (!ob.isSuspended && ob.isLimitDown && ob.limitDownSealAmount != null && ob.limitDownSealAmount > 0) {
+    badges.push(
+      <span key="seal" className="text-[8px] px-1.5 py-0.5 rounded"
+        style={{ background: "#0a1628", color: DIM, border: `1px solid ${BORDER}` }}>
+        封单 {formatAmount(ob.limitDownSealAmount)}
+      </span>
+    );
+  }
+
+  // ── 正常盘口：量比 + 委比 ──
+  if (!ob.isSuspended && !ob.isLimitDown && !ob.isLimitUp) {
+    if (ob.volumeRatio != null && ob.volumeRatio > 0) {
+      const vr = ob.volumeRatio;
+      badges.push(
+        <span key="vr" className="text-[8px] px-1.5 py-0.5 rounded"
+          style={{ background: "#0a1628", color: vr >= 2 ? Y : MID, border: `1px solid ${BORDER}` }}>
+          量比 {vr.toFixed(2)}
+        </span>
+      );
+    }
+    if (ob.commissionRatio != null) {
+      const cr = ob.commissionRatio;
+      badges.push(
+        <span key="cr" className="text-[8px] px-1.5 py-0.5 rounded"
+          style={{ background: "#0a1628", color: cr >= 0 ? G : R, border: `1px solid ${BORDER}` }}>
+          委比 {cr >= 0 ? "+" : ""}{cr.toFixed(1)}%
+        </span>
+      );
+    }
+  }
+
+  if (badges.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      {badges}
+    </div>
+  );
+}
+
 // ── 候选股票卡片 ──────────────────────────────────────────────────────
 function CandidateCard({
-  entry, onViewDetail, onRemove,
+  entry, onViewDetail, onRemove, orderBook, obLoading,
 }: {
   entry: STCandidateEntry;
   onViewDetail: () => void;
   onRemove: () => void;
+  orderBook?: OrderBookData | null;
+  obLoading?: boolean;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const rl = entry.riskLevel;
@@ -138,6 +230,11 @@ function CandidateCard({
             <p className="text-[7px] mt-0.5" style={{ color: DIM }}>{l}</p>
           </div>
         ))}
+      </div>
+
+      {/* 实时盘口状态 */}
+      <div className="mb-2">
+        <OrderBookStatus ob={orderBook} loading={obLoading} />
       </div>
 
       {/* 不达标原因 */}
@@ -351,10 +448,52 @@ export default function STCandidatePool({ onViewDetail }: Props) {
   const [filter, setFilter]     = useState<FilterKey>("all");
   const [confirmClear, setConfirmClear] = useState<"pool" | "history" | null>(null);
 
+  // 实时盘口状态
+  const [orderBookMap, setOrderBookMap] = useState<Record<string, OrderBookData | null>>({});
+  const [obLoading, setObLoading]       = useState(false);
+  const obTimerRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 加载 localStorage 数据
   const reload = useCallback(() => {
     setPool(loadPool());
     setHistory(loadHistory());
+  }, []);
+
+  // 批量拉取盘口（每次最多 20 只，分批请求）
+  const loadOrderBooks = useCallback(async (entries: STCandidateEntry[]) => {
+    const symbols = entries.map(e => e.symbol).filter(s => /^\d{6}$/.test(s));
+    if (symbols.length === 0) return;
+
+    setObLoading(true);
+    try {
+      const BATCH = 20;
+      const merged: Record<string, OrderBookData | null> = {};
+      for (let i = 0; i < symbols.length; i += BATCH) {
+        const chunk = symbols.slice(i, i + BATCH);
+        try {
+          const res = await fetch("/api/quotes/order-book", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ symbols: chunk }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json?.ok && json.results) {
+              for (const [sym, data] of Object.entries(json.results)) {
+                merged[sym] = data as OrderBookData;
+              }
+            }
+          }
+        } catch { /* 静默忽略单批失败 */ }
+      }
+      // 对未返回数据的 symbol 标为 null
+      for (const sym of symbols) {
+        if (!(sym.toUpperCase() in merged)) merged[sym.toUpperCase()] = null;
+      }
+      setOrderBookMap(prev => ({ ...prev, ...merged }));
+    } finally {
+      setObLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -366,6 +505,17 @@ export default function STCandidatePool({ onViewDetail }: Props) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [reload]);
+
+  // 候选池变化时重新加载盘口，并每 30s 刷新一次
+  useEffect(() => {
+    if (pool.length === 0) return;
+    loadOrderBooks(pool);
+    if (obTimerRef.current) clearInterval(obTimerRef.current);
+    obTimerRef.current = setInterval(() => loadOrderBooks(pool), 30_000);
+    return () => {
+      if (obTimerRef.current) clearInterval(obTimerRef.current);
+    };
+  }, [pool, loadOrderBooks]);
 
   // 过滤 + 排序后的候选池
   const displayed = useMemo(() => {
@@ -525,6 +675,8 @@ export default function STCandidatePool({ onViewDetail }: Props) {
                       removeFromPool(entry.tsCode);
                       reload();
                     }}
+                    orderBook={orderBookMap[entry.symbol.toUpperCase()]}
+                    obLoading={obLoading && !(entry.symbol.toUpperCase() in orderBookMap)}
                   />
                 ))}
               </div>
@@ -534,11 +686,11 @@ export default function STCandidatePool({ onViewDetail }: Props) {
           {/* 操作区 */}
           {pool.length > 0 && (
             <div className="flex gap-2 pt-2">
-              <button onClick={reload}
+              <button onClick={() => { reload(); loadOrderBooks(pool); }}
                 className="flex-1 py-2.5 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5"
                 style={{ background: CARD, color: MID, border: `1px solid ${BORDER}` }}>
-                <RefreshCw size={12} />
-                刷新
+                <RefreshCw size={12} className={obLoading ? "animate-spin" : ""} />
+                刷新盘口
               </button>
               {confirmClear === "pool" ? (
                 <div className="flex gap-1.5 flex-1">
