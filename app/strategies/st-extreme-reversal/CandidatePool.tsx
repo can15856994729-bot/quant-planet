@@ -48,8 +48,15 @@ export default function CandidatePool({ onSelectForBacktest }: Props) {
     try {
       const raw = localStorage.getItem(POOL_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as STExtremeCandidate[];
-        setPool(Array.isArray(parsed) ? parsed : []);
+        const parsed = JSON.parse(raw);
+        // 兼容旧版（纯数组）和新版（{version, cachedAt, candidates:[]}）两种格式
+        if (Array.isArray(parsed)) {
+          setPool(parsed);
+        } else if (parsed && Array.isArray(parsed.candidates)) {
+          setPool(parsed.candidates);
+          // 顺便标准化存储格式
+          localStorage.setItem(POOL_KEY, JSON.stringify(parsed.candidates));
+        }
       }
     } catch {
       setPool([]);

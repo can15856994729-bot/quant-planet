@@ -268,7 +268,18 @@ export default function STExtremeReversalPage() {
   function addToPool(c: STExtremeCandidate) {
     try {
       const raw = localStorage.getItem(POOL_KEY);
-      const existing: STExtremeCandidate[] = raw ? JSON.parse(raw) : [];
+      // 兼容旧版（纯数组）和新版（{version, cachedAt, candidates:[]}）两种存储格式
+      let existing: STExtremeCandidate[] = [];
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            existing = parsed;
+          } else if (parsed && Array.isArray(parsed.candidates)) {
+            existing = parsed.candidates;
+          }
+        } catch { /* 解析失败则清空重建 */ }
+      }
       const filtered = existing.filter(e => e.tsCode !== c.tsCode);
       filtered.unshift(c);
       localStorage.setItem(POOL_KEY, JSON.stringify(filtered));
