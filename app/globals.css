@@ -28,23 +28,67 @@ body {
   min-height: 100vh;
 }
 
-/* ── 安全区工具类 ──────────────────────────────────────────────── */
-/* 底部：预留底部导航高度 + 系统手势条 */
-.pb-safe {
-  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
-}
-/* 顶部：供普通页面容器使用，仅补 safe-area 高度 */
+/* ═══════════════════════════════════════════════════════════════════
+   安全区工具类 — Safe Area Utilities
+
+   背景：
+     App 使用 viewport-fit=cover（layout.tsx），配合 Capacitor 的
+     edge-to-edge 模式，WebView 延伸到状态栏下方。
+     所有页面顶部必须使用安全区类，否则内容会被系统状态栏遮挡。
+
+   规则：
+     • 有 PageHeader 组件的页面：PageHeader 已包含 header-safe-pt，无需额外处理
+     • 自定义顶栏（不用 PageHeader）：用 page-top-pt 或 safe-header
+     • fixed/absolute 全屏遮罩的顶栏：用 overlay-safe-pt（与 page-top-pt 等效）
+     • 页面内容列表底部：body 的 pb-safe 已覆盖，特殊页面可加 safe-bottom
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 顶部 ─────────────────────────────────────────────────────────── */
+
+/* 仅 safe-area 高度（不加额外 padding） */
 .pt-safe {
   padding-top: env(safe-area-inset-top, 0px);
 }
-/* 顶部：供自定义 Header 使用（safe-area + 16px 内容间距） */
-.header-safe-pt {
-  padding-top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
-}
-/* 顶部：供页面顶部区（无 Header 组件）使用（safe-area + 12px） */
+
+/* 自定义顶栏 / 普通页面头部（safe-area + 12px） — 最常用 */
 .page-top-pt {
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
 }
+
+/* PageHeader 组件专用（safe-area + 16px，!important 防止 Tailwind 覆盖） */
+.header-safe-pt {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
+}
+
+/* fixed/absolute 全屏遮罩的顶栏（与 page-top-pt 等效，语义更清晰） */
+.overlay-safe-pt {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+}
+
+/* 整页 safe-area 容器：顶部 + 底部一次搞定 */
+.safe-page {
+  padding-top:    calc(env(safe-area-inset-top, 0px) + 16px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
+}
+
+/* 仅顶部（safe-area + 12px，与 page-top-pt 等效，别名） */
+.safe-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+}
+
+/* ── 底部 ─────────────────────────────────────────────────────────── */
+
+/* 底部导航栏高度预留（应用于 body，避免内容被 BottomNav 遮挡） */
+.pb-safe {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* 列表/内容区底部（预留更多空间，供特殊页面使用） */
+.safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
+}
+
+/* ── 通用组件 ─────────────────────────────────────────────────────── */
 
 .card {
   background: var(--card);

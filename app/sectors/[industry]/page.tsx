@@ -45,7 +45,8 @@ export default async function SectorDetailPage({
     const code = raw.toUpperCase();
     return (
       <div style={{ background: "#07111F", minHeight: "100vh" }}>
-        <div className="px-4 pt-4 pb-0">
+        {/* page-top-pt = safe-area-inset-top + 12px，防止被状态栏遮挡 */}
+        <div className="px-4 pb-2 page-top-pt">
           <Link href="/sectors"
             className="inline-flex items-center gap-1 text-[12px] active:opacity-70"
             style={{ color: "#94A3B8" }}>
@@ -65,7 +66,8 @@ export default async function SectorDetailPage({
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
-      <div className="px-4 pt-4 pb-0">
+      {/* page-top-pt = safe-area-inset-top + 12px，防止被状态栏遮挡 */}
+      <div className="px-4 pb-2 page-top-pt">
         <Link href="/sectors"
           className="inline-flex items-center gap-1 text-[12px] active:opacity-70"
           style={{ color: "#94A3B8" }}>

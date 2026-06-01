@@ -246,8 +246,8 @@ export default function SectorDetailClient({ swIndustry }: Props) {
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
-      {/* 页头 */}
-      <div className="flex items-center justify-between px-4 pb-3 page-top-pt">
+      {/* 页头 — safe-area 由父级 page.tsx 的 page-top-pt 处理，此处仅保留小间距 */}
+      <div className="flex items-center justify-between px-4 pt-2 pb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
             style={{ background: `${color}18`, border: `1px solid ${color}25` }}>
