@@ -221,7 +221,8 @@ export async function getDailyBasic(
   return callTushare(
     "daily_basic",
     { ts_code: tsCode, start_date: startDate, end_date: endDate },
-    "trade_date,pe,pe_ttm,pb,ps_ttm,total_mv,circ_mv,turnover_rate,volume_ratio",
+    // 完整字段：PE/PB/PS + 市值 + 换手率 + 量比 + 股息率
+    "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm",
     6 * 60 * 60 * 1000,
   );
 }

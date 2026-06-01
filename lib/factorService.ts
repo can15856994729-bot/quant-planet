@@ -60,6 +60,33 @@ export interface CashflowFactors {
   unavailable?: boolean;
 }
 
+/**
+ * 估值因子数据（可选，来自 Tushare daily_basic + fina_indicator）
+ * 传入后替代 quote.pe/pb 代理，融合 PE/PB 历史分位提升估值精度。
+ *
+ * 对应 ValuationSummaryItem 的核心字段（服务端提取后传入，避免客户端暴露 token）
+ */
+export interface ValuationFactors {
+  /** PE TTM（优先）或 PE */
+  pe:  number | null;
+  /** 市净率 PB */
+  pb:  number | null;
+  /** PEG = PE TTM / 净利润增长率（%）— ≤0 增速时为 null */
+  peg: number | null;
+  /** PE 历史分位（0~1，基于近3年；<0.2=低估，>0.8=高估；不足120条时为 null）*/
+  pePercentile: number | null;
+  /** PB 历史分位（0~1，基于近3年）*/
+  pbPercentile: number | null;
+  /** 股息率（%）— dv_ratio；>3% 加分 */
+  dividendYield: number | null;
+  /** 换手率（%）— turnover_rate */
+  turnoverRate: number | null;
+  /** 量比 — volume_ratio */
+  volumeRatio: number | null;
+  /** 数据不可用时为 true（daily_basic 权限不足）*/
+  unavailable?: boolean;
+}
+
 export interface FactorScores {
   // Raw 0-100 per factor
   trendScore:     number;
@@ -119,6 +146,8 @@ export function calculateFactorScores(
   realMoneyFlow?: RealMoneyFlowData | null,
   /** 可选：来自 Tushare 的现金流质量因子（融入质量评分） */
   cashflowFactors?: CashflowFactors | null,
+  /** 可选：来自 Tushare 的估值因子（替代 quote.pe/pb，融合 PE/PB 历史分位） */
+  valuationFactors?: ValuationFactors | null,
 ): FactorScores {
   const closes  = klines.map(k => k.close);
   const volumes = klines.map(k => k.volume);
@@ -236,7 +265,65 @@ export function calculateFactorScores(
   let valuationScore = 50;
   let valuationNote  = "估值因子：PE/PB暂缺，历史分位暂缺";
   let vHasData       = false;
-  if (quote.pe && quote.pe > 0 && quote.pe < 300) {
+
+  // 4a. 优先使用 ValuationFactors（含 PE/PB 历史分位，精度最高）
+  if (valuationFactors && !valuationFactors.unavailable) {
+    const { pe, pb, peg, pePercentile, pbPercentile, dividendYield } = valuationFactors;
+    let vRaw = 50;
+    const vParts: string[] = [];
+
+    // PE 历史分位（最重要 — 反映相对历史估值水平）
+    if (pePercentile != null) {
+      if (pePercentile < 0.20)      { vRaw += 25; vParts.push(`PE分位${(pePercentile*100).toFixed(0)}%（低估）`); reasons.push("PE处于历史低位，估值具吸引力"); }
+      else if (pePercentile < 0.40) { vRaw += 15; vParts.push(`PE分位${(pePercentile*100).toFixed(0)}%（偏低）`); }
+      else if (pePercentile < 0.60) { vRaw +=  0; vParts.push(`PE分位${(pePercentile*100).toFixed(0)}%（中性）`); }
+      else if (pePercentile < 0.80) { vRaw -= 12; vParts.push(`PE分位${(pePercentile*100).toFixed(0)}%（偏高）`); warnings.push("PE估值高于历史均值"); }
+      else                          { vRaw -= 25; vParts.push(`PE分位${(pePercentile*100).toFixed(0)}%（高估）`); warnings.push("PE处于历史高位（>80%分位），注意估值风险"); }
+      vHasData = true;
+    }
+
+    // PB 历史分位（辅助）
+    if (pbPercentile != null) {
+      if (pbPercentile < 0.20)      { vRaw += 12; vParts.push(`PB分位${(pbPercentile*100).toFixed(0)}%（低）`); }
+      else if (pbPercentile > 0.80) { vRaw -= 12; vParts.push(`PB分位${(pbPercentile*100).toFixed(0)}%（高）`); }
+      vHasData = true;
+    }
+
+    // PEG（成长与估值匹配度）
+    if (peg != null && peg > 0) {
+      if (peg < 1)      { vRaw += 10; vParts.push(`PEG=${peg.toFixed(2)}（低）`); reasons.push(`PEG=${peg.toFixed(2)}，成长与估值匹配度较好`); }
+      else if (peg > 2) { vRaw -= 10; vParts.push(`PEG=${peg.toFixed(2)}（高）`); warnings.push(`PEG=${peg.toFixed(2)}，成长溢价过高`); }
+      vHasData = true;
+    }
+
+    // 无分位数据时降级为绝对 PE/PB 判断
+    if (!vHasData && pe != null && pe > 0 && pe < 300) {
+      if (pe < 15)      { vRaw = 82; vParts.push(`低估值PE=${pe.toFixed(1)}`); }
+      else if (pe < 25) { vRaw = 68; vParts.push(`合理估值PE=${pe.toFixed(1)}`); }
+      else if (pe < 40) { vRaw = 52; vParts.push(`偏高PE=${pe.toFixed(1)}`); }
+      else              { vRaw = 35; vParts.push(`高估值PE=${pe.toFixed(1)}`); warnings.push("估值偏高"); }
+      if (pb != null) {
+        if (pb < 2) vRaw += 8;
+        else if (pb > 8) vRaw -= 8;
+      }
+      vHasData = true;
+    }
+
+    // 高股息加分（>3% 具备配置价值）
+    if (dividendYield != null && dividendYield > 3) {
+      vRaw += 5;
+      vParts.push(`股息率${dividendYield.toFixed(1)}%`);
+      reasons.push(`股息率${dividendYield.toFixed(1)}%，具备分红吸引力`);
+      vHasData = true;
+    }
+
+    valuationScore = Math.max(0, Math.min(100, vRaw));
+    valuationNote  = vParts.length > 0
+      ? `估值因子：${vParts.join(" / ")}`
+      : `PE=${pe?.toFixed(1) ?? "—"} / PB=${pb?.toFixed(2) ?? "—"}（历史分位数据不足）`;
+
+  } else if (quote.pe && quote.pe > 0 && quote.pe < 300) {
+    // 4b. 降级：仅使用实时报价 PE/PB（无历史分位）
     let vRaw = 50;
     if (quote.pe < 15)      { vRaw = 82; valuationNote = `低估值 PE=${quote.pe.toFixed(1)}`; }
     else if (quote.pe < 25) { vRaw = 68; valuationNote = `合理估值 PE=${quote.pe.toFixed(1)}`; }

@@ -89,10 +89,10 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
       { ts_code: "600519.SH", start_date: start10, end_date: end },
       "trade_date,open,high,low,close,vol"),
 
-    // daily_basic：贵州茅台近10天
+    // daily_basic：贵州茅台近10天（完整估值/市值/交易活跃度字段）
     testCap("daily_basic",
       { ts_code: "600519.SH", start_date: start10, end_date: end },
-      "trade_date,pe_ttm,pb,total_mv,turnover_rate"),
+      "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm"),
 
     // index_daily：沪深300近10天
     testCap("index_daily",
@@ -254,6 +254,32 @@ export async function GET(req: NextRequest) {
       : "资产负债表不可用，财务安全模块将显示权限不足提示",
   };
 
+  // 估值与市值接口专项说明（供估值模块诊断用）
+  const valuationDetail = {
+    testStock: "600519.SH（贵州茅台）",
+    daily_basic: {
+      status:       caps.daily_basic.status,
+      rowCount:     caps.daily_basic.rowCount ?? 0,
+      testedFields: "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm",
+      available:    valuationOk,
+    },
+    fina_indicator: {
+      status:       caps.fina_indicator.status,
+      rowCount:     caps.fina_indicator.rowCount ?? 0,
+      testedFields: "netprofit_yoy（用于计算 PEG = PE TTM / 净利润增长率）",
+      available:    finaIndicatorOk,
+    },
+    valuationApi:        "/api/stocks/600519/valuation",
+    valuationHistoryApi: "/api/stocks/600519/valuation/history",
+    valuationPercentileApi: "/api/stocks/600519/valuation/percentile",
+    unitNote: "total_mv / circ_mv：Tushare 返回万元，API 自动 ×10000 转换为元，前端显示亿",
+    note: valuationOk
+      ? finaIndicatorOk
+        ? "daily_basic + fina_indicator 均可用，估值模块正常（含 PE/PB 历史分位、PEG、市值、换手率、量比）"
+        : "daily_basic 可用，但 fina_indicator 不可用（PEG 将显示为不可计算）"
+      : "daily_basic 不可用，估值模块将显示权限不足提示",
+  };
+
   // 现金流质量接口专项说明（供现金流质量模块诊断用）
   const cashflowQualityDetail = {
     testStock: "600519.SH（贵州茅台）",
@@ -290,6 +316,7 @@ export async function GET(req: NextRequest) {
     fina_indicator:   finaIndicatorOk ? "✅ ROE/毛利率/资负率/流速比可用"        : "❌ 财务指标权限不足（fina_indicator）",
     financial_safety: balancesheetOk  ? "✅ 财务安全模块可用（资负率/流动比/速动比/商誉/应收/存货）" : "❌ 资产负债表权限不足（balancesheet），财务安全模块不可用",
     cashflow_quality: cashflowOk      ? "✅ 现金流质量模块可用（三大现金流/FCF/经营CF÷净利润/销售回款）" : "❌ 现金流量表权限不足（cashflow），现金流质量模块不可用",
+    valuation_market_cap: valuationOk ? "✅ 估值与市值模块可用（PE/PB/PS/PEG/市值/换手率/量比/历史分位）" : "❌ daily_basic 权限不足，估值模块不可用",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
@@ -323,6 +350,7 @@ export async function GET(req: NextRequest) {
     profitabilityDetail,
     financialSafetyDetail,
     cashflowQualityDetail,
+    valuationDetail,
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
       : undefined,
