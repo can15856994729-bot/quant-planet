@@ -13,6 +13,7 @@ import ProfitabilityCard from "@/components/financial/ProfitabilityCard";
 import FinancialSafetyCard from "@/components/financial/FinancialSafetyCard";
 import CashflowCard from "@/components/financial/CashflowCard";
 import ValuationCard from "@/components/financial/ValuationCard";
+import FinancialTrendCard from "@/components/financial/FinancialTrendCard";
 import MoneyFlowCard from "@/components/MoneyFlowCard";
 import OrderBookCard from "@/components/OrderBookCard";
 import type { Stock } from "@/types";
@@ -288,6 +289,19 @@ export default async function StockDetailPage({
         ───────────────────────────────────────────────────────── */}
         {market === "A" && /^\d{6}$/.test(stock.symbol) && (
           <CashflowCard
+            symbol={stock.symbol}
+            stockName={name}
+          />
+        )}
+
+        {/* ─────────────────────────────────────────────────────────
+            财报趋势模块（仅 A 股，6 位代码）
+            数据来源：Tushare income + fina_indicator + cashflow + balancesheet
+            展示近 4 期趋势：营收 / 净利润 / ROE / 毛利率 / 经营现金流 / 资负率
+            服务端 API Route 调用，不暴露 TUSHARE_TOKEN
+        ───────────────────────────────────────────────────────── */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <FinancialTrendCard
             symbol={stock.symbol}
             stockName={name}
           />

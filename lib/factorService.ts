@@ -61,6 +61,27 @@ export interface CashflowFactors {
 }
 
 /**
+ * 财报趋势因子数据（可选，来自 getFinancialTrendSummary）
+ * 传入后融入质量评分，提升评分对基本面趋势的敏感度。
+ *
+ * 对应 FinancialTrendAnalysis 的核心方向字段（服务端提取后传入）
+ */
+export type TrendDirection =
+  | "improving" | "worsening" | "stable" | "volatile" | "insufficient_data";
+
+export interface TrendFactors {
+  revenueTrend:           TrendDirection;
+  netProfitTrend:         TrendDirection;
+  deductedNetProfitTrend: TrendDirection;
+  roeTrend:               TrendDirection;
+  grossMarginTrend:       TrendDirection;
+  operatingCashflowTrend: TrendDirection;
+  debtToAssetsTrend:      TrendDirection;
+  /** 数据不可用时为 true */
+  unavailable?: boolean;
+}
+
+/**
  * 估值因子数据（可选，来自 Tushare daily_basic + fina_indicator）
  * 传入后替代 quote.pe/pb 代理，融合 PE/PB 历史分位提升估值精度。
  *
@@ -148,6 +169,8 @@ export function calculateFactorScores(
   cashflowFactors?: CashflowFactors | null,
   /** 可选：来自 Tushare 的估值因子（替代 quote.pe/pb，融合 PE/PB 历史分位） */
   valuationFactors?: ValuationFactors | null,
+  /** 可选：来自 Tushare 的财报趋势因子（融入质量评分） */
+  trendFactors?: TrendFactors | null,
 ): FactorScores {
   const closes  = klines.map(k => k.close);
   const volumes = klines.map(k => k.volume);
@@ -259,6 +282,49 @@ export function calculateFactorScores(
   } else if (cashflowFactors?.unavailable) {
     // 现金流数据不可用时记录提示
     warnings.push("现金流数据暂缺，现金流因子未启用");
+  }
+
+  // 3c. 财报趋势因子融合（若可用，在 PE/PB + 现金流基础上调整 ±20 分）
+  if (trendFactors && !trendFactors.unavailable) {
+    const tf = trendFactors;
+    let trendAdj = 0;
+    const trendParts: string[] = [];
+
+    const applyTrendAdj = (
+      trend: TrendDirection,
+      label: string,
+      bonus: number,
+      penalty: number,
+    ) => {
+      if (trend === "improving") {
+        trendAdj += bonus;
+        trendParts.push(`${label}↑`);
+        if (bonus >= 3) reasons.push(`${label}趋势持续改善`);
+      } else if (trend === "worsening") {
+        trendAdj -= penalty;
+        trendParts.push(`${label}↓`);
+        warnings.push(`${label}趋势持续恶化`);
+      }
+    };
+
+    applyTrendAdj(tf.revenueTrend,           "营收",   2, 3);
+    applyTrendAdj(tf.netProfitTrend,         "净利润", 3, 4);
+    applyTrendAdj(tf.roeTrend,               "ROE",   3, 4);
+    applyTrendAdj(tf.grossMarginTrend,       "毛利率", 2, 3);
+    applyTrendAdj(tf.operatingCashflowTrend, "经营CF", 3, 4);
+    applyTrendAdj(tf.debtToAssetsTrend,      "资负率", 2, 3); // improving=降=好
+    applyTrendAdj(tf.deductedNetProfitTrend, "扣非利润", 2, 3);
+    // 最大 +17 / -24
+
+    qualityScore = Math.max(0, Math.min(100, qualityScore + trendAdj));
+    if (trendParts.length > 0) {
+      const baseNote = qHasData ? qualityNote : "质量因子";
+      qualityNote = `${baseNote} | 趋势：${trendParts.join("/")}`;
+      qHasData = true;
+    }
+  } else if (trendFactors?.unavailable) {
+    // 趋势数据不可用时说明
+    warnings.push("财报趋势数据暂缺，趋势因子未启用");
   }
 
   // ── 4. Valuation Factor (weight 15%) ─────────────────────────

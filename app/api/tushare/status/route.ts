@@ -317,6 +317,11 @@ export async function GET(req: NextRequest) {
     financial_safety: balancesheetOk  ? "✅ 财务安全模块可用（资负率/流动比/速动比/商誉/应收/存货）" : "❌ 资产负债表权限不足（balancesheet），财务安全模块不可用",
     cashflow_quality: cashflowOk      ? "✅ 现金流质量模块可用（三大现金流/FCF/经营CF÷净利润/销售回款）" : "❌ 现金流量表权限不足（cashflow），现金流质量模块不可用",
     valuation_market_cap: valuationOk ? "✅ 估值与市值模块可用（PE/PB/PS/PEG/市值/换手率/量比/历史分位）" : "❌ daily_basic 权限不足，估值模块不可用",
+    financial_trends: (incomeOk && finaIndicatorOk && cashflowOk && balancesheetOk)
+      ? "✅ 财报趋势模块可用（营收/净利润/扣非/ROE/毛利率/经营CF/资负率 近4期趋势）"
+      : incomeOk
+      ? "⚠️ 财报趋势模块部分可用（部分字段来源暂缺，已启用降级逻辑）"
+      : "❌ income 权限不足，财报趋势模块不可用",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
@@ -351,6 +356,10 @@ export async function GET(req: NextRequest) {
     financialSafetyDetail,
     cashflowQualityDetail,
     valuationDetail,
+    financialTrendsApis: [
+      "/api/tushare/financial-trends?tsCode=600519.SH",
+      "/api/stocks/600519/financials/trends",
+    ],
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
       : undefined,

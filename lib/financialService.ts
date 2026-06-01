@@ -976,3 +976,371 @@ export async function getCashflowSummary(
   _cashflowCache.set(cacheKey, { result, expiresAt: Date.now() + CASHFLOW_CACHE_TTL });
   return result;
 }
+
+// ════════════════════════════════════════════════════════════════════════
+//  财报趋势分析  (Task F)
+//  聚合 income + fina_indicator + cashflow + balancesheet
+//  返回最近 4~8 期趋势数据，升序排列，适合前端图表直接使用。
+// ════════════════════════════════════════════════════════════════════════
+
+// ── 缓存 ─────────────────────────────────────────────────────────────
+const TREND_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 天（财报变化慢）
+
+interface TrendCacheEntry {
+  result:    FinancialTrendResult;
+  expiresAt: number;
+}
+const _trendCache = new Map<string, TrendCacheEntry>();
+
+/** 清除财报趋势缓存（支持按 tsCode 精确清除） */
+export function clearTrendCache(tsCode?: string): void {
+  if (tsCode) {
+    for (const k of _trendCache.keys()) {
+      if (k.startsWith(`trend::${tsCode}::`)) _trendCache.delete(k);
+    }
+  } else {
+    _trendCache.clear();
+  }
+}
+
+// ── 类型定义 ─────────────────────────────────────────────────────────
+
+export type TrendDirection =
+  | "improving"        // 改善
+  | "worsening"        // 恶化
+  | "stable"           // 稳定
+  | "volatile"         // 波动
+  | "insufficient_data"; // 数据不足（有效期数 < 3）
+
+export interface FinancialTrendPeriod {
+  reportDate:        string;          // YYYYMMDD
+  annDate:           string;          // 公告日期 YYYYMMDD
+  period:            string;          // "2024年年报"
+
+  revenue:           number | null;   // 营业收入（元）
+  netProfit:         number | null;   // 净利润（元，归母优先）
+  deductedNetProfit: number | null;   // 扣非净利润（元）
+  roe:               number | null;   // ROE（%，如 15.2 = 15.2%）
+  grossMargin:       number | null;   // 毛利率（%，如 91.5 = 91.5%）
+  operatingCashflow: number | null;   // 经营现金流净额（元）
+  debtToAssets:      number | null;   // 资产负债率（小数，0.65 = 65%）
+
+  missingFields:     string[];        // 缺失字段名列表
+  source:            "Tushare";
+}
+
+export interface FinancialTrendAnalysis {
+  revenueTrend:           TrendDirection;
+  netProfitTrend:         TrendDirection;
+  deductedNetProfitTrend: TrendDirection;
+  roeTrend:               TrendDirection;
+  grossMarginTrend:       TrendDirection;
+  operatingCashflowTrend: TrendDirection;
+  debtToAssetsTrend:      TrendDirection;
+  overallTrend:           "improving" | "worsening" | "stable" | "mixed" | "insufficient_data";
+}
+
+export interface FinancialTrendResult {
+  ok:             boolean;
+  tsCode:         string;
+  symbol:         string;
+  periods:        FinancialTrendPeriod[];  // 升序（旧→新），适合图表
+  trendAnalysis:  FinancialTrendAnalysis;
+  riskWarnings:   string[];
+  fromCache?:     boolean;
+  error?:         string;
+  updatedAt:      string;
+  incomeStatus:   string;
+  finaStatus:     string;
+  cashflowStatus: string;
+  balanceStatus:  string;
+}
+
+// ── fina_indicator 趋势专用字段集 ────────────────────────────────────
+
+const FINA_TREND_FIELDS =
+  "ann_date,end_date,roe,grossprofit_margin,debt_to_assets,profit_dedt";
+
+// ── 趋势计算工具 ──────────────────────────────────────────────────────
+
+/**
+ * 计算数值序列趋势（升序时间序列）
+ * higherIsBetter=true  → 上升=improving；false → 下降=improving
+ */
+function calcTrend(values: (number | null)[], higherIsBetter = true): TrendDirection {
+  const valid = values.filter((v): v is number => v != null);
+  if (valid.length < 3) return "insufficient_data";
+
+  let upPairs = 0, downPairs = 0;
+  for (let i = 1; i < valid.length; i++) {
+    if (valid[i] > valid[i - 1])      upPairs++;
+    else if (valid[i] < valid[i - 1]) downPairs++;
+  }
+  const pairs = valid.length - 1;
+  const upR = upPairs / pairs;
+  const downR = downPairs / pairs;
+  const thr = 2 / 3; // 超过 2/3 的相邻对方向一致 → 判断为趋势
+
+  if (higherIsBetter) {
+    if (upR   >= thr) return "improving";
+    if (downR >= thr) return "worsening";
+  } else {
+    if (downR >= thr) return "improving";
+    if (upR   >= thr) return "worsening";
+  }
+
+  // 振幅 > 30% → volatile；否则 stable
+  const avg = valid.reduce((s, v) => s + v, 0) / valid.length;
+  if (avg !== 0) {
+    const range = Math.max(...valid) - Math.min(...valid);
+    if (Math.abs(range / avg) > 0.3) return "volatile";
+  }
+  return "stable";
+}
+
+function calcOverallTrend(
+  a: Omit<FinancialTrendAnalysis, "overallTrend">,
+): FinancialTrendAnalysis["overallTrend"] {
+  const ts = [
+    a.revenueTrend, a.netProfitTrend, a.deductedNetProfitTrend,
+    a.roeTrend, a.grossMarginTrend, a.operatingCashflowTrend, a.debtToAssetsTrend,
+  ].filter(t => t !== "insufficient_data");
+
+  if (ts.length < 3) return "insufficient_data";
+  const imp = ts.filter(t => t === "improving").length;
+  const wor = ts.filter(t => t === "worsening").length;
+  if (imp / ts.length >= 0.6) return "improving";
+  if (wor / ts.length >= 0.6) return "worsening";
+  if (imp > wor)               return "stable";
+  return "mixed";
+}
+
+function buildTrendRiskWarnings(
+  periods: FinancialTrendPeriod[],
+  a: FinancialTrendAnalysis,
+): string[] {
+  const w: string[] = [];
+  if (a.revenueTrend === "worsening")
+    w.push("营业收入连续下滑，需关注主营业务增长压力。");
+  if (a.netProfitTrend === "worsening")
+    w.push("净利润连续下滑，盈利能力承压。");
+  const latestDnp = periods[periods.length - 1]?.deductedNetProfit;
+  if (latestDnp != null && latestDnp < 0)
+    w.push("最新期扣非净利润为负，主营盈利质量需关注。");
+  if (a.deductedNetProfitTrend === "worsening")
+    w.push("扣非净利润持续恶化，需警惕非经常性损益依赖。");
+  if (a.roeTrend === "worsening")
+    w.push("ROE 连续下滑，股东回报能力下降。");
+  if (a.grossMarginTrend === "worsening")
+    w.push("毛利率下滑，可能存在成本上升或竞争加剧。");
+  const cfNeg = periods.filter(p => p.operatingCashflow != null && p.operatingCashflow < 0).length;
+  if (cfNeg >= 2)
+    w.push("经营现金流持续为负，利润质量风险较高。");
+  if (a.operatingCashflowTrend === "worsening")
+    w.push("经营现金流趋势持续恶化，现金回款能力减弱。");
+  if (a.debtToAssetsTrend === "worsening")
+    w.push("资产负债率持续上升，财务杠杆风险增加。");
+  return w;
+}
+
+function emptyTrendAnalysis(): FinancialTrendAnalysis {
+  const i: TrendDirection = "insufficient_data";
+  return {
+    revenueTrend: i, netProfitTrend: i, deductedNetProfitTrend: i,
+    roeTrend: i, grossMarginTrend: i, operatingCashflowTrend: i,
+    debtToAssetsTrend: i, overallTrend: "insufficient_data",
+  };
+}
+
+// ── 核心聚合函数 ──────────────────────────────────────────────────────
+
+/**
+ * 获取财报趋势数据（最近 periods 期，升序返回供图表使用）
+ *
+ * @param tsCode   Tushare 股票代码，如 "600519.SH"
+ * @param periods  返回期数（默认 4，最多 8）
+ * @param refresh  为 true 时强制绕过缓存
+ */
+export async function getFinancialTrendSummary(
+  tsCode:  string,
+  periods  = 4,
+  refresh  = false,
+): Promise<FinancialTrendResult> {
+  const now    = new Date().toISOString();
+  const symbol = tsCodeToSymbol(tsCode);
+
+  if (!hasTushareToken()) {
+    return {
+      ok: false, tsCode, symbol, periods: [],
+      trendAnalysis: emptyTrendAnalysis(), riskWarnings: [],
+      error: "TUSHARE_TOKEN 未配置，无法获取财报趋势数据",
+      updatedAt: now,
+      incomeStatus: "no_token", finaStatus: "no_token",
+      cashflowStatus: "no_token", balanceStatus: "no_token",
+    };
+  }
+
+  const cacheKey = `trend::${tsCode}::${periods}`;
+  if (!refresh) {
+    const hit = _trendCache.get(cacheKey);
+    if (hit && Date.now() < hit.expiresAt) return { ...hit.result, fromCache: true };
+  }
+
+  const startDate = daysAgoStr(3 * 365 + 90);
+  const endDate   = todayStr();
+
+  // 并行拉取四个数据源（income 已含 oper_cost，用于毛利率 fallback）
+  const [incRes, finaRaw, cfRes, bsRes] = await Promise.all([
+    getIncomeStatement(tsCode, startDate, endDate),
+    callTushare(
+      "fina_indicator",
+      { ts_code: tsCode, start_date: startDate, end_date: endDate },
+      FINA_TREND_FIELDS,
+      TREND_CACHE_TTL,
+    ),
+    getCashflowStatement(tsCode, startDate, endDate),
+    getBalanceSheetStatement(tsCode, startDate, endDate),
+  ]);
+
+  // 处理 fina_indicator 响应
+  const finaRecords = finaRaw.ok ? dedupeDesc(finaRaw.records) : [];
+  const finaStatus  = !finaRaw.ok
+    ? (finaRaw.permissionDenied ? "permission_denied" : "error")
+    : finaRecords.length > 0 ? "ok" : "empty";
+
+  // income 是核心数据源，权限不足直接返回失败
+  if (incRes.status === "permission_denied") {
+    return {
+      ok: false, tsCode, symbol, periods: [],
+      trendAnalysis: emptyTrendAnalysis(), riskWarnings: [],
+      error: "当前 Tushare 权限不足，无法获取财报趋势数据",
+      updatedAt: now,
+      incomeStatus: "permission_denied",
+      finaStatus: finaStatus as string,
+      cashflowStatus: cfRes.status as string,
+      balanceStatus:  bsRes.status as string,
+    };
+  }
+
+  if (incRes.records.length === 0) {
+    return {
+      ok: false, tsCode, symbol, periods: [],
+      trendAnalysis: emptyTrendAnalysis(), riskWarnings: [],
+      error: "该股票财报数据暂缺",
+      updatedAt: now,
+      incomeStatus: incRes.status,
+      finaStatus: finaStatus as string,
+      cashflowStatus: cfRes.status as string,
+      balanceStatus:  bsRes.status as string,
+    };
+  }
+
+  // 建立快速查找表（按 end_date）
+  const finaByDate = new Map<string, TushareRecord>();
+  for (const r of finaRecords) finaByDate.set(String(r.end_date ?? ""), r);
+
+  const cfByDate = new Map<string, TushareRecord>();
+  for (const r of cfRes.records) cfByDate.set(String(r.end_date ?? ""), r);
+
+  const bsByDate = new Map<string, TushareRecord>();
+  for (const r of bsRes.records) bsByDate.set(String(r.end_date ?? ""), r);
+
+  // 取最近 periods 期 income（已降序），然后升序（旧→新）供图表使用
+  const incSlice = incRes.records.slice(0, periods);
+  const incAsc   = [...incSlice].reverse();
+
+  const trendPeriods: FinancialTrendPeriod[] = incAsc.map((inc) => {
+    const ed   = String(inc.end_date ?? "");
+    const fina = finaByDate.get(ed);
+    const cf   = cfByDate.get(ed);
+    const bs   = bsByDate.get(ed);
+    const miss: string[] = [];
+
+    // ── income 字段 ──────────────────────────────────────────────────
+    const revenue   = toNum(inc.revenue) ?? toNum(inc.total_revenue);
+    const netProfit = toNum(inc.n_income_attr_p) ?? toNum(inc.n_income);
+    if (revenue   == null) miss.push("营业收入");
+    if (netProfit == null) miss.push("净利润");
+
+    // ── fina_indicator 字段 ──────────────────────────────────────────
+    const deductedNetProfit = fina ? toNum(fina.profit_dedt) : null;
+    const roe               = fina ? toNum(fina.roe) : null;
+    let grossMargin: number | null = fina ? toNum(fina.grossprofit_margin) : null;
+
+    // 毛利率 fallback：(revenue - oper_cost) / revenue × 100
+    if (grossMargin == null) {
+      const operCost = toNum(inc.oper_cost);
+      if (revenue != null && operCost != null && revenue !== 0)
+        grossMargin = (revenue - operCost) / revenue * 100;
+    }
+
+    if (deductedNetProfit == null) miss.push("扣非净利润");
+    if (roe         == null) miss.push("ROE");
+    if (grossMargin == null) miss.push("毛利率");
+
+    // ── cashflow 字段 ─────────────────────────────────────────────────
+    const operatingCashflow = cf ? toNum(cf.n_cashflow_act) : null;
+    if (operatingCashflow == null) miss.push("经营现金流");
+
+    // ── 资产负债率（fina_indicator 优先，balancesheet fallback）──────
+    let debtToAssets: number | null = null;
+    if (fina) {
+      const raw = toNum(fina.debt_to_assets);
+      debtToAssets = raw != null ? raw / 100 : null; // Tushare 返回 %（40.5），转小数（0.405）
+    }
+    if (debtToAssets == null && bs) {
+      debtToAssets = safeDiv(toNum(bs.total_liab), toNum(bs.total_assets));
+    }
+    if (debtToAssets == null) miss.push("资产负债率");
+
+    return {
+      reportDate: ed,
+      annDate:    String(inc.ann_date ?? ""),
+      period:     toPeriodLabel(ed),
+      revenue,
+      netProfit,
+      deductedNetProfit,
+      roe,
+      grossMargin,
+      operatingCashflow,
+      debtToAssets,
+      missingFields: miss,
+      source: "Tushare",
+    } satisfies FinancialTrendPeriod;
+  });
+
+  // ── 趋势分析 ──────────────────────────────────────────────────────
+  const revenueTrend           = calcTrend(trendPeriods.map(p => p.revenue));
+  const netProfitTrend         = calcTrend(trendPeriods.map(p => p.netProfit));
+  const deductedNetProfitTrend = calcTrend(trendPeriods.map(p => p.deductedNetProfit));
+  const roeTrend               = calcTrend(trendPeriods.map(p => p.roe));
+  const grossMarginTrend       = calcTrend(trendPeriods.map(p => p.grossMargin));
+  const operatingCashflowTrend = calcTrend(trendPeriods.map(p => p.operatingCashflow));
+  const debtToAssetsTrend      = calcTrend(trendPeriods.map(p => p.debtToAssets), false);
+
+  const partial = {
+    revenueTrend, netProfitTrend, deductedNetProfitTrend,
+    roeTrend, grossMarginTrend, operatingCashflowTrend, debtToAssetsTrend,
+  };
+  const trendAnalysis: FinancialTrendAnalysis = {
+    ...partial,
+    overallTrend: calcOverallTrend(partial),
+  };
+
+  const riskWarnings = buildTrendRiskWarnings(trendPeriods, trendAnalysis);
+
+  const result: FinancialTrendResult = {
+    ok: true, tsCode, symbol,
+    periods: trendPeriods,
+    trendAnalysis,
+    riskWarnings,
+    updatedAt: now,
+    incomeStatus:   incRes.status,
+    finaStatus:     finaStatus as string,
+    cashflowStatus: cfRes.status as string,
+    balanceStatus:  bsRes.status as string,
+  };
+
+  _trendCache.set(cacheKey, { result, expiresAt: Date.now() + TREND_CACHE_TTL });
+  return result;
+}
