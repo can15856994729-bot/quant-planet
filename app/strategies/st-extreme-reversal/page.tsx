@@ -285,8 +285,8 @@ export default function STExtremeReversalPage() {
       localStorage.setItem(POOL_KEY, JSON.stringify(filtered));
       setPoolVersion(v => v + 1);
       alert(`已将 ${c.name}(${c.symbol}) 加入候选池`);
-    } catch {
-      alert("加入候选池失败");
+    } catch (err) {
+      alert(`加入候选池失败：${String(err)}`);
     }
   }
 
