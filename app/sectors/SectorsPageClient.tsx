@@ -10,6 +10,13 @@
  *  4. 地域板块 (Region)  — 东方财富 m:90+t:1
  *
  * 切换 tab 时懒加载东财数据；SW 数据由 props 传入（服务端预取）。
+ *
+ * EM 板块数量修复说明：
+ *  EastMoney clist API 的 f104/f105/f106（涨跌平家数）在非交易时段全为 0，
+ *  导致 stockCount = null，"只"角标消失。
+ *  修复方案：加载板块列表后，对 stockCount===null 的板块，
+ *  异步调用 /api/eastmoney/sectors/counts（使用 data.total）补充数量，
+ *  并缓存到 localStorage（30 分钟有效）。
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -58,6 +65,35 @@ interface Props {
   quoteOk:      boolean;
 }
 
+// ── localStorage 缓存键和 TTL ─────────────────────────────────────────────
+const LS_COUNT_KEY = "quantplanet_sector_stock_count_cache_v1";
+const LS_COUNT_TTL = 30 * 60 * 1000; // 30 分钟
+
+interface LSCountCache {
+  counts:    Record<string, number>; // code → count
+  expiresAt: number;
+}
+
+function loadCountCache(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(LS_COUNT_KEY);
+    if (!raw) return {};
+    const parsed: LSCountCache = JSON.parse(raw);
+    if (Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(LS_COUNT_KEY);
+      return {};
+    }
+    return parsed.counts ?? {};
+  } catch { return {}; }
+}
+
+function saveCountCache(counts: Record<string, number>): void {
+  try {
+    const payload: LSCountCache = { counts, expiresAt: Date.now() + LS_COUNT_TTL };
+    localStorage.setItem(LS_COUNT_KEY, JSON.stringify(payload));
+  } catch { /* storage 满或隐私模式，忽略 */ }
+}
+
 // ── 格式化 ────────────────────────────────────────────────────────────────
 function fmtPct(v: number | null): string {
   if (v == null) return "--";
@@ -102,10 +138,24 @@ const TABS: { key: TabKey; label: string; emoji: string; color: string }[] = [
 ];
 
 // ── 东财板块卡片 ──────────────────────────────────────────────────────────
-function EMSectorCard({ s, color }: { s: EMSectorItem; color: string }) {
+function EMSectorCard({
+  s,
+  color,
+  resolvedCount,
+  countLoading,
+}: {
+  s: EMSectorItem;
+  color: string;
+  resolvedCount: number | null;
+  countLoading: boolean;
+}) {
   const pc   = pctColor(s.changePct);
   const fc   = flowColor(s.mainFlow);
   const encoded = encodeURIComponent(s.code);
+  // 优先使用已解析的真实数量，其次用板块数据自带的，
+  // 若都没有且还在加载中，显示"加载中…"
+  const displayCount = resolvedCount ?? s.stockCount;
+
   return (
     <Link href={`/sectors/${encoded}`}>
       <div className="p-3.5 rounded-2xl active:opacity-70 transition-opacity"
@@ -116,10 +166,20 @@ function EMSectorCard({ s, color }: { s: EMSectorItem; color: string }) {
               <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>
                 {s.name}
               </span>
-              {s.stockCount != null && (
+              {displayCount != null ? (
                 <span className="text-[10px] px-1.5 py-0.5 rounded"
                   style={{ background: `${color}18`, color }}>
-                  {s.stockCount}只
+                  {displayCount}只
+                </span>
+              ) : countLoading ? (
+                <span className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{ background: "rgba(148,163,184,0.1)", color: "#64748B" }}>
+                  加载中…
+                </span>
+              ) : (
+                <span className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{ background: "rgba(148,163,184,0.08)", color: "#475569" }}>
+                  数量暂缺
                 </span>
               )}
             </div>
@@ -173,6 +233,16 @@ function SWCard({ name, stockCount, stat }: {
   const color   = meta.color;
   const avg     = stat?.avgChangePct ?? null;
   const encoded = encodeURIComponent(name);
+
+  // 股票数量优先级：
+  //  1. stockCount（来自 Tushare stock_basic，最准确）
+  //  2. stat.stockCount（来自 stats 接口样本）
+  //  3. "数量暂缺"（两者都为 0 / 未定义）
+  const displayCount =
+    stockCount > 0
+      ? stockCount
+      : (stat?.stockCount && stat.stockCount > 0 ? stat.stockCount : null);
+
   return (
     <Link href={`/sectors/${encoded}`}>
       <div className="p-3.5 rounded-2xl active:opacity-70 transition-opacity"
@@ -186,10 +256,17 @@ function SWCard({ name, stockCount, stat }: {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-[14px]" style={{ color: "#F8FAFC" }}>{name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ background: `${color}18`, color }}>
-                  {stockCount > 0 ? stockCount : (stat?.stockCount ?? "--")}只
-                </span>
+                {displayCount != null ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: `${color}18`, color }}>
+                    {displayCount}只
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: "rgba(148,163,184,0.08)", color: "#475569" }}>
+                    数量暂缺
+                  </span>
+                )}
               </div>
               <p className="text-[11px] mt-0.5 truncate" style={{ color: "#64748B" }}>{meta.desc}</p>
             </div>
@@ -228,14 +305,80 @@ export default function SectorsPageClient({ swSectors, swStats, totalStocks, quo
   const [emLoading,  setEMLoading]  = useState(false);
   const [emError,    setEMError]    = useState<string | null>(null);
 
+  // EM 板块数量补充（data.total，非交易时段准确）
+  // resolvedCounts: code → count（来自 API 或 localStorage）
+  const [resolvedCounts, setResolvedCounts] = useState<Record<string, number>>({});
+  const [countLoading,   setCountLoading]   = useState(false);
+
   // SW stats map
   const statsMap = new Map<string, SWSectorStat>();
   for (const s of swStats) statsMap.set(s.name, s);
 
-  // 加载东财板块
+  // ── 加载 EM 板块数量（批量，localStorage 缓存）──────────────────────────
+  const loadEMCounts = useCallback(async (sectors: EMSectorItem[]) => {
+    // 找出 stockCount 为 null 的板块
+    const nullCodes = sectors
+      .filter(s => s.stockCount === null || s.stockCount === 0)
+      .map(s => s.code);
+
+    if (nullCodes.length === 0) return;
+
+    // 读取 localStorage 缓存
+    const cached = loadCountCache();
+
+    // 找出缓存未命中的
+    const uncached = nullCodes.filter(c => cached[c.toUpperCase()] == null);
+
+    // 将缓存命中的更新到 state
+    const newCounts: Record<string, number> = { ...cached };
+
+    if (uncached.length > 0) {
+      setCountLoading(true);
+      try {
+        // 分批（每批 20）请求
+        for (let i = 0; i < uncached.length; i += 20) {
+          const batch = uncached.slice(i, i + 20);
+          const res   = await fetch("/api/eastmoney/sectors/counts", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ codes: batch }),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.ok && data.counts) {
+            for (const [code, count] of Object.entries(data.counts)) {
+              if (typeof count === "number" && count > 0) {
+                newCounts[code.toUpperCase()] = count;
+              }
+            }
+          }
+          // 每批之间稍微等一下，避免并发过猛
+          if (i + 20 < uncached.length) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+        // 保存到 localStorage
+        saveCountCache(newCounts);
+      } catch {
+        // 静默失败，已有缓存数据仍可展示
+      } finally {
+        setCountLoading(false);
+      }
+    }
+
+    setResolvedCounts(newCounts);
+  }, []);
+
+  // ── 加载东财板块列表 ─────────────────────────────────────────────────────
   const loadEM = useCallback(async (tab: TabKey) => {
     if (tab === "sw") return;
-    if (emData.current[tab]) { setEMSectors(emData.current[tab]!); return; }
+    if (emData.current[tab]) {
+      const cached = emData.current[tab]!;
+      setEMSectors(cached);
+      // 即使已缓存列表，也需要加载数量（数量可能之前未加载）
+      await loadEMCounts(cached);
+      return;
+    }
 
     setEMLoading(true);
     setEMError(null);
@@ -248,8 +391,11 @@ export default function SectorsPageClient({ swSectors, swStats, totalStocks, quo
       const res  = await fetch(`/api/eastmoney/sectors?type=${type}`);
       const data = await res.json();
       if (data.ok) {
-        emData.current[tab] = data.sectors ?? [];
-        setEMSectors(data.sectors ?? []);
+        const sectors: EMSectorItem[] = data.sectors ?? [];
+        emData.current[tab] = sectors;
+        setEMSectors(sectors);
+        // 加载数量补充
+        await loadEMCounts(sectors);
       } else {
         setEMError(data.error ?? "加载失败");
       }
@@ -258,7 +404,7 @@ export default function SectorsPageClient({ swSectors, swStats, totalStocks, quo
     } finally {
       setEMLoading(false);
     }
-  }, []);
+  }, [loadEMCounts]);
 
   useEffect(() => {
     if (activeTab !== "sw") loadEM(activeTab);
@@ -420,6 +566,9 @@ export default function SectorsPageClient({ swSectors, swStats, totalStocks, quo
               <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#00E5A8" }} />
               <span className="text-[11px]" style={{ color: "#00E5A8" }}>
                 数据来源：东方财富 · 实时更新
+                {countLoading && (
+                  <span style={{ color: "#64748B" }}> · 数量加载中…</span>
+                )}
               </span>
             </div>
           )}
@@ -428,7 +577,13 @@ export default function SectorsPageClient({ swSectors, swStats, totalStocks, quo
           {!emLoading && !emError && (
             <div className="px-4 space-y-2 pb-28">
               {emFiltered.map(s => (
-                <EMSectorCard key={s.code} s={s} color={tabColor} />
+                <EMSectorCard
+                  key={s.code}
+                  s={s}
+                  color={tabColor}
+                  resolvedCount={resolvedCounts[s.code.toUpperCase()] ?? null}
+                  countLoading={countLoading}
+                />
               ))}
               {emFiltered.length === 0 && emSectors.length > 0 && (
                 <div className="p-8 rounded-2xl text-center"

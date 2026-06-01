@@ -264,3 +264,80 @@ export async function fetchEMSectorDetail(
 export function isEMSectorCode(code: string): boolean {
   return /^BK\d+$/i.test(code);
 }
+
+// ── 批量获取板块总股票数（data.total，非交易时段也准确）────────────────
+// EastMoney clist API 的 data.total 字段永远返回该板块真实成分股数量，
+// 与 f104/f105/f106（涨跌平家数，非交易时段为 0）完全不同。
+//
+// 策略：pz=1（仅拉 1 条股票），读取 data.total
+//   URL: BASE_CLIST?pn=1&pz=1&fs=b:<code>&fields=f12
+//
+const _countCache = new Map<string, { count: number; expiresAt: number }>();
+const COUNT_CACHE_TTL = 30 * 60 * 1000; // 30 分钟
+
+export async function fetchEMSectorCount(code: string): Promise<number | null> {
+  const key = code.toUpperCase();
+
+  // 内存缓存命中
+  const hit = _countCache.get(key);
+  if (hit && Date.now() < hit.expiresAt) return hit.count;
+
+  const fs  = `b:${key}`;
+  const url = `${BASE_CLIST}?cb=jQuery&pn=1&pz=1&ut=${UT}&fltt=2&invt=2&fs=${encodeURIComponent(fs)}&fields=f12&_=${Date.now()}`;
+
+  try {
+    const res = await fetch(url, {
+      headers: HEADERS,
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+
+    const text  = await res.text();
+    const json  = parseEM(text) as { data?: { total?: unknown } };
+    const raw   = json?.data?.total;
+    const total = typeof raw === "number" && raw > 0 ? raw : null;
+
+    if (total !== null) {
+      _countCache.set(key, { count: total, expiresAt: Date.now() + COUNT_CACHE_TTL });
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 批量获取多个板块的 stockCount（并发 5）
+ * @returns Record<upperCode, count | null>
+ */
+export async function fetchEMSectorCountBatch(
+  codes: string[],
+  concurrency = 5,
+): Promise<Record<string, number | null>> {
+  const result: Record<string, number | null> = {};
+  const upper = codes.map(c => c.toUpperCase());
+
+  // 先从内存缓存填充
+  const pending: string[] = [];
+  for (const code of upper) {
+    const hit = _countCache.get(code);
+    if (hit && Date.now() < hit.expiresAt) {
+      result[code] = hit.count;
+    } else {
+      pending.push(code);
+    }
+  }
+
+  // 并发请求未命中的
+  for (let i = 0; i < pending.length; i += concurrency) {
+    const batch = pending.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(
+      batch.map(code => fetchEMSectorCount(code)),
+    );
+    settled.forEach((r, idx) => {
+      result[batch[idx]] = r.status === "fulfilled" ? r.value : null;
+    });
+  }
+
+  return result;
+}
