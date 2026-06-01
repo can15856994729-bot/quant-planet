@@ -27,6 +27,10 @@ export default function StrategiesPage() {
       router.push("/strategies/st-risk-reversal");
       return;
     }
+    if (strategyId === "st-extreme-reversal") {
+      router.push("/strategies/st-extreme-reversal");
+      return;
+    }
     // 多因子轮动策略直接到回测页（默认模式）
     if (strategyId === "a-share-multi-factor") {
       router.push("/backtest");

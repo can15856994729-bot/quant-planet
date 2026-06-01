@@ -480,6 +480,22 @@ export const MOCK_STRATEGIES: Strategy[] = [
     tags: ["ST专题", "风险反转", "困境反转", "摘帽预期", "事件驱动", "高风险"],
   },
   {
+    id: "st-extreme-reversal",
+    name: "A股 ST 极限反转策略",
+    description: "专注于连续跌停5-50个板的ST股票极限反转机会。筛选跌停打开后股价趋于稳定或出现V型反转的标的。⚠️ 极高风险：连续跌停股票可能继续跌停、停牌、退市或无法卖出，仅供研究和模拟交易。",
+    marketCondition: "全市场",
+    annualReturn: 0, maxDrawdown: 0, winRate: 0, tradeCount: 0,
+    riskLevel: "高",
+    indicators: ["连续跌停检测", "V型反转", "股价稳定", "退市风险过滤", "流动性恢复"],
+    markets: ["A"],
+    params: [
+      { key: "minLimitDownStreak", label: "最少连续跌停", defaultValue: 5, min: 3, max: 10, step: 1, unit: "个" },
+      { key: "maxDelistingRiskScore", label: "最大退市风险分", defaultValue: 40, min: 20, max: 60, step: 5, unit: "分" },
+      { key: "maxPositionRatio", label: "单只最大仓位", defaultValue: 2, min: 1, max: 5, step: 0.5, unit: "%" },
+    ],
+    tags: ["ST专题", "极限反转", "跌停板", "V型反转", "困境反转", "极高风险"],
+  },
+  {
     id: "a-share-multi-factor",
     name: "A股稳健多因子轮动策略",
     description: "通过趋势、动量、质量、估值、资金、风险六类因子综合打分，筛选A股中长期强势标的，动态控制仓位。追求长期稳健收益，控制回撤，不承诺盈利。",
