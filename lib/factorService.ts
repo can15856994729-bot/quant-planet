@@ -39,6 +39,27 @@ export interface RealMoneyFlowData {
   unavailable?: false;
 }
 
+/**
+ * 现金流质量因子数据（可选，来自 Tushare cashflow + income）
+ * 若不传则质量因子仅使用 PE/PB 代理；传入后融合真实现金流评分。
+ *
+ * 对应 CashflowSummaryItem 的核心字段（服务端提取后传入，避免客户端暴露 token）
+ */
+export interface CashflowFactors {
+  /** 经营活动现金流净额（元）— n_cashflow_act */
+  operatingCashflow:   number | null;
+  /** 自由现金流（元）— free_cashflow 或 经营CF - 资本开支 */
+  freeCashflow:        number | null;
+  /** 经营现金流 / 净利润（倍数）— operatingCashflow / netProfit */
+  operatingCashflowToNetProfit: number | null;
+  /** 销售商品收到的现金（元）— c_fr_sale_sg */
+  cashReceivedFromSales: number | null;
+  /** 购买商品支付的现金（元）— c_paid_goods_s */
+  cashPaidForGoods: number | null;
+  /** 数据不可用时为 true（cashflow 权限不足） */
+  unavailable?: boolean;
+}
+
 export interface FactorScores {
   // Raw 0-100 per factor
   trendScore:     number;
@@ -95,7 +116,9 @@ export function calculateFactorScores(
   klines: KLineBar[],
   quote: QuoteData,
   /** 可选：来自东方财富的真实资金流数据（权重 15%，不可用时降级为量比代理） */
-  realMoneyFlow?: RealMoneyFlowData | null
+  realMoneyFlow?: RealMoneyFlowData | null,
+  /** 可选：来自 Tushare 的现金流质量因子（融入质量评分） */
+  cashflowFactors?: CashflowFactors | null,
 ): FactorScores {
   const closes  = klines.map(k => k.close);
   const volumes = klines.map(k => k.volume);
@@ -155,10 +178,12 @@ export function calculateFactorScores(
   }
   const momentumScore = Math.max(0, Math.min(100, mRaw));
 
-  // ── 3. Quality Factor (weight 20%) — fundamental data limited ─
+  // ── 3. Quality Factor (weight 20%) — PE/PB + optional cashflow ─
   let qualityScore = 50; // neutral when real data unavailable
   let qualityNote  = "质量因子：ROE/利润增长/经营现金流暂缺（需财务数据接口）";
   let qHasData     = false;
+
+  // 3a. PE/PB 代理
   if (quote.pe && quote.pe > 0 && quote.pe < 300 && quote.pb && quote.pb > 0) {
     let qRaw = 55;
     if (quote.pe < 20)  qRaw += 18;
@@ -169,6 +194,42 @@ export function calculateFactorScores(
     qualityScore = Math.max(0, Math.min(100, qRaw));
     qualityNote  = `PE ${quote.pe.toFixed(1)} / PB ${quote.pb.toFixed(2)}（ROE/利润增长暂缺）`;
     qHasData     = true;
+  }
+
+  // 3b. 现金流质量因子融合（若可用，在 PE/PB 基础上调整 ±15 分）
+  if (cashflowFactors && !cashflowFactors.unavailable) {
+    const { operatingCashflow, freeCashflow, operatingCashflowToNetProfit } = cashflowFactors;
+    const cfParts: string[] = [];
+    let cfAdj = 0;
+
+    // 经营现金流为正 → +5
+    if (operatingCashflow != null) {
+      if (operatingCashflow > 0) { cfAdj += 5; cfParts.push("经营现金流为正"); reasons.push("经营活动现金流为正，主营回款健康"); }
+      else                       { cfAdj -= 8; cfParts.push("经营现金流为负"); warnings.push("经营现金流为负，需关注现金回款能力"); }
+    }
+
+    // 经营现金流 / 净利润 > 1 → +8；< 0.5 → -6
+    if (operatingCashflowToNetProfit != null && isFinite(operatingCashflowToNetProfit)) {
+      if (operatingCashflowToNetProfit >= 1)   { cfAdj += 8; cfParts.push("CF/NP≥1x"); reasons.push(`经营现金流/净利润=${operatingCashflowToNetProfit.toFixed(2)}x，利润含金量高`); }
+      else if (operatingCashflowToNetProfit >= 0.5) { cfAdj += 2; cfParts.push("CF/NP≥0.5x"); }
+      else                                     { cfAdj -= 6; cfParts.push("CF/NP<0.5x"); warnings.push("经营现金流/净利润偏低，利润含金量不足"); }
+    }
+
+    // 自由现金流为正 → +5
+    if (freeCashflow != null) {
+      if (freeCashflow > 0) { cfAdj += 5; cfParts.push("自由现金流为正"); }
+      else                  { cfAdj -= 3; cfParts.push("自由现金流为负"); }
+    }
+
+    qualityScore = Math.max(0, Math.min(100, qualityScore + cfAdj));
+    if (cfParts.length > 0) {
+      const baseNote = qHasData ? qualityNote : "质量因子";
+      qualityNote = `${baseNote} | 现金流：${cfParts.join("/")}`;
+      qHasData = true;
+    }
+  } else if (cashflowFactors?.unavailable) {
+    // 现金流数据不可用时记录提示
+    warnings.push("现金流数据暂缺，现金流因子未启用");
   }
 
   // ── 4. Valuation Factor (weight 15%) ─────────────────────────

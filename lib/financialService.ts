@@ -689,3 +689,290 @@ export async function getFinancialSafetySummary(
   _safetyCache.set(cacheKey, { result, expiresAt: Date.now() + SAFETY_CACHE_TTL });
   return result;
 }
+
+// ════════════════════════════════════════════════════════════════════════
+//  现金流量 + 现金流质量分析  (Task D)
+// ════════════════════════════════════════════════════════════════════════
+
+// ── 缓存 ─────────────────────────────────────────────────────────────
+const CASHFLOW_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+interface CashflowCacheEntry {
+  result:    CashflowSummaryResult;
+  expiresAt: number;
+}
+const _cashflowCache = new Map<string, CashflowCacheEntry>();
+
+/** 清除现金流缓存（支持按 tsCode 精确清除） */
+export function clearCashflowCache(tsCode?: string): void {
+  if (tsCode) {
+    for (const key of _cashflowCache.keys()) {
+      if (key.startsWith(`cf::${tsCode}::`)) _cashflowCache.delete(key);
+    }
+  } else {
+    _cashflowCache.clear();
+  }
+}
+
+// ── 字段常量 ─────────────────────────────────────────────────────────
+
+/** cashflow 接口完整字段列表 */
+export const CASHFLOW_FIELDS =
+  "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta";
+
+// ── 类型定义 ─────────────────────────────────────────────────────────
+
+export type CashflowDataStatus = "ok" | "permission_denied" | "error" | "empty" | "no_token";
+
+/**
+ * 现金流量 + 现金流质量核心字段（单报告期）
+ * null 代表数据缺失，绝不用 0 冒充。
+ */
+export interface CashflowSummaryItem {
+  tsCode:    string;
+  symbol:    string;
+  reportDate: string;  // end_date YYYYMMDD
+  annDate:   string;   // ann_date YYYYMMDD
+  period:    string;   // "2024年年报" 等
+
+  // ── 三大现金流（单位：元）────────────────────────────────────────
+  operatingCashflow:   number | null;  // 经营活动现金流净额 (n_cashflow_act)
+  investingCashflow:   number | null;  // 投资活动现金流净额 (n_cashflow_inv_act)
+  financingCashflow:   number | null;  // 筹资活动现金流净额 (n_cash_flows_fnc_act)
+
+  // ── 自由现金流（单位：元）────────────────────────────────────────
+  freeCashflow:        number | null;  // free_cashflow 或 经营现金流 - 资本开支
+
+  // ── 现金流质量指标 ───────────────────────────────────────────────
+  operatingCashflowToNetProfit:    number | null;  // 经营现金流 / 净利润（倍数，如 1.2）
+  cashAndCashEquivalentsIncrease:  number | null;  // 现金及现金等价物增加额
+
+  // ── 详细现金流分项（单位：元）───────────────────────────────────
+  cashReceivedFromSales:       number | null;  // 销售商品收到的现金 (c_fr_sale_sg)
+  cashPaidForGoods:            number | null;  // 购买商品支付的现金 (c_paid_goods_s)
+  dividendInterestPaymentCash: number | null;  // 分红利息支付现金 (c_pay_dist_dpcp_int_exp)
+  capitalExpenditures:         number | null;  // 购建固定资产支付现金 (c_pay_acq_const_fiolta)
+
+  // ── 辅助字段（来自 income）──────────────────────────────────────
+  netProfit: number | null;  // 净利润（用于计算 operatingCashflowToNetProfit）
+  revenue:   number | null;  // 营业收入（用于销售回款质量预警）
+
+  source:    "Tushare";
+  updatedAt: string;
+}
+
+export interface CashflowSummaryResult {
+  ok:               boolean;
+  tsCode:           string;
+  symbol:           string;
+  items:            CashflowSummaryItem[];
+  cashflowStatus:   CashflowDataStatus;
+  incomeStatus:     CashflowDataStatus;
+  fromCache?:       boolean;
+  error?:           string;
+  updatedAt:        string;
+}
+
+// ── 原始数据获取 ──────────────────────────────────────────────────────
+
+/**
+ * 获取现金流量表原始数据
+ */
+export async function getCashflowStatement(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<{ records: TushareRecord[]; status: CashflowDataStatus; error?: string }> {
+  const res = await callTushare(
+    "cashflow",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    CASHFLOW_FIELDS,
+    CASHFLOW_CACHE_TTL,
+  );
+  if (!res.ok) {
+    return {
+      records: [],
+      status:  res.permissionDenied ? "permission_denied" : "error",
+      error:   res.error,
+    };
+  }
+  const deduped = dedupeDesc(res.records);
+  return { records: deduped, status: deduped.length > 0 ? "ok" : "empty" };
+}
+
+/**
+ * 获取用于现金流质量计算的 income 数据（净利润 + 营收）
+ * 复用 getIncomeStatement，仅取必需字段
+ */
+export async function getCashflowQualityMetrics(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<{ records: TushareRecord[]; status: CashflowDataStatus; error?: string }> {
+  const res = await callTushare(
+    "income",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    "ann_date,end_date,n_income,n_income_attr_p,revenue,total_revenue",
+    CASHFLOW_CACHE_TTL,
+  );
+  if (!res.ok) {
+    return {
+      records: [],
+      status:  res.permissionDenied ? "permission_denied" : "error",
+      error:   res.error,
+    };
+  }
+  const deduped = dedupeDesc(res.records);
+  return { records: deduped, status: deduped.length > 0 ? "ok" : "empty" };
+}
+
+// ── 核心聚合函数 ──────────────────────────────────────────────────────
+
+/**
+ * 获取现金流摘要（最近 periods 期，聚合 cashflow + income）
+ *
+ * @param tsCode   Tushare 股票代码，如 "600519.SH"
+ * @param periods  返回期数（默认 8 期）
+ * @param refresh  为 true 时强制绕过缓存
+ */
+export async function getCashflowSummary(
+  tsCode:  string,
+  periods  = 8,
+  refresh  = false,
+): Promise<CashflowSummaryResult> {
+  const now = new Date().toISOString();
+
+  // Token 检查
+  if (!hasTushareToken()) {
+    return {
+      ok: false, tsCode, symbol: tsCodeToSymbol(tsCode), items: [],
+      cashflowStatus: "no_token",
+      incomeStatus:   "no_token",
+      error: "TUSHARE_TOKEN 未配置，无法获取现金流量表数据",
+      updatedAt: now,
+    };
+  }
+
+  const cacheKey = `cf::${tsCode}::${periods}`;
+  if (!refresh) {
+    const hit = _cashflowCache.get(cacheKey);
+    if (hit && Date.now() < hit.expiresAt) {
+      return { ...hit.result, fromCache: true };
+    }
+  }
+
+  const symbol    = tsCodeToSymbol(tsCode);
+  const startDate = daysAgoStr(3 * 365 + 90);
+  const endDate   = todayStr();
+
+  // 并行拉取 cashflow + income
+  const [cfRes, incRes] = await Promise.all([
+    getCashflowStatement(tsCode, startDate, endDate),
+    getCashflowQualityMetrics(tsCode, startDate, endDate),
+  ]);
+
+  // 权限不足
+  if (cfRes.status === "permission_denied") {
+    const result: CashflowSummaryResult = {
+      ok: false, tsCode, symbol, items: [],
+      cashflowStatus: "permission_denied",
+      incomeStatus:   incRes.status,
+      error: "当前 Tushare 权限不足，无法获取现金流量表数据",
+      updatedAt: now,
+    };
+    return result;
+  }
+
+  // 无记录
+  if (cfRes.records.length === 0) {
+    const result: CashflowSummaryResult = {
+      ok: false, tsCode, symbol, items: [],
+      cashflowStatus: cfRes.status,
+      incomeStatus:   incRes.status,
+      error: "该股票现金流量表数据暂缺",
+      updatedAt: now,
+    };
+    return result;
+  }
+
+  // 建立 income 快速查找
+  const incByDate = new Map<string, TushareRecord>();
+  for (const r of incRes.records) incByDate.set(String(r.end_date ?? ""), r);
+
+  const cfSlice = cfRes.records.slice(0, periods);
+
+  const items: CashflowSummaryItem[] = cfSlice.map((cf) => {
+    const ed  = String(cf.end_date ?? "");
+    const inc = incByDate.get(ed);
+
+    // ── 三大现金流 ──────────────────────────────────────────────────
+    const operatingCashflow  = toNum(cf.n_cashflow_act);
+    const investingCashflow  = toNum(cf.n_cashflow_inv_act);
+    const financingCashflow  = toNum(cf.n_cash_flows_fnc_act);
+
+    // ── 自由现金流（优先 free_cashflow，次用 经营-资本开支）──────
+    const fcfDirect  = toNum(cf.free_cashflow);
+    const capex      = toNum(cf.c_pay_acq_const_fiolta);
+    const freeCashflow =
+      fcfDirect != null
+        ? fcfDirect
+        : operatingCashflow != null && capex != null
+        ? operatingCashflow - capex
+        : null;
+
+    // ── 详细分项 ────────────────────────────────────────────────────
+    const cashAndCashEquivalentsIncrease  = toNum(cf.n_incr_cash_cash_equ);
+    const cashReceivedFromSales           = toNum(cf.c_fr_sale_sg);
+    const cashPaidForGoods               = toNum(cf.c_paid_goods_s);
+    const dividendInterestPaymentCash    = toNum(cf.c_pay_dist_dpcp_int_exp);
+    const capitalExpenditures            = capex;
+
+    // ── income 辅助字段 ─────────────────────────────────────────────
+    const netProfit = inc
+      ? (toNum(inc.n_income_attr_p) ?? toNum(inc.n_income))
+      : null;
+    const revenue = inc
+      ? (toNum(inc.revenue) ?? toNum(inc.total_revenue))
+      : null;
+
+    // ── 现金流质量比率 ──────────────────────────────────────────────
+    // 经营现金流 / 净利润（内部存倍数，如 1.2）
+    // 净利润为 0 或负数时不计算（避免除以 0 或无意义的负数）
+    const operatingCashflowToNetProfit =
+      operatingCashflow != null && netProfit != null && netProfit !== 0
+        ? operatingCashflow / netProfit
+        : null;
+
+    return {
+      tsCode,
+      symbol,
+      reportDate: ed,
+      annDate:    String(cf.ann_date ?? ""),
+      period:     toPeriodLabel(ed),
+      operatingCashflow,
+      investingCashflow,
+      financingCashflow,
+      freeCashflow,
+      operatingCashflowToNetProfit,
+      cashAndCashEquivalentsIncrease,
+      cashReceivedFromSales,
+      cashPaidForGoods,
+      dividendInterestPaymentCash,
+      capitalExpenditures,
+      netProfit,
+      revenue,
+      source:    "Tushare",
+      updatedAt: now,
+    } satisfies CashflowSummaryItem;
+  });
+
+  const result: CashflowSummaryResult = {
+    ok: true, tsCode, symbol, items,
+    cashflowStatus: cfRes.status,
+    incomeStatus:   incRes.status,
+    updatedAt: now,
+  };
+
+  _cashflowCache.set(cacheKey, { result, expiresAt: Date.now() + CASHFLOW_CACHE_TTL });
+  return result;
+}

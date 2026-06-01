@@ -275,7 +275,8 @@ export async function getCashflow(
   return callTushare(
     "cashflow",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act",
+    // 完整字段：三大现金流 + 自由现金流 + 增加额 + 销售/购买 + 分红 + 资本开支（用于 FCF 兜底计算）
+    "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta",
     7 * 24 * 60 * 60 * 1000,
   );
 }

@@ -114,10 +114,10 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
       "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr"),
 
-    // cashflow：贵州茅台近90天
+    // cashflow：贵州茅台近90天，测试完整现金流质量字段
     testCap("cashflow",
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "end_date,n_cashflow_act"),
+      "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta"),
 
     // fina_indicator：贵州茅台近90天，测试完整盈利能力 + 财务安全字段
     testCap("fina_indicator",
@@ -254,6 +254,30 @@ export async function GET(req: NextRequest) {
       : "资产负债表不可用，财务安全模块将显示权限不足提示",
   };
 
+  // 现金流质量接口专项说明（供现金流质量模块诊断用）
+  const cashflowQualityDetail = {
+    testStock: "600519.SH（贵州茅台）",
+    cashflow: {
+      status:       caps.cashflow.status,
+      rowCount:     caps.cashflow.rowCount ?? 0,
+      testedFields: "n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta",
+      available:    cashflowOk,
+    },
+    income: {
+      status:       caps.income.status,
+      rowCount:     caps.income.rowCount ?? 0,
+      testedFields: "n_income,n_income_attr_p,revenue（用于计算经营现金流/净利润及销售回款率）",
+      available:    incomeOk,
+    },
+    cashflowSummaryApi:  "/api/tushare/cashflow-summary?tsCode=600519.SH",
+    cashflowQualityApi:  "/api/tushare/cashflow-quality?tsCode=600519.SH",
+    note: cashflowOk
+      ? incomeOk
+        ? "现金流量表 + 利润表均可用，现金流质量模块正常（含经营现金流/净利润计算）"
+        : "现金流量表可用，但利润表不可用（经营现金流/净利润比率将显示数据暂缺）"
+      : "现金流量表不可用，现金流质量模块将显示权限不足提示",
+  };
+
   // ── 功能可用性说明 ────────────────────────────────────────────────
   const featureSummary = {
     stock_pool:       stockPoolOk     ? "✅ 沪深北全量股票池（Tushare）"      : "⚠️ 降级为东方财富+本地股票池",
@@ -265,6 +289,7 @@ export async function GET(req: NextRequest) {
     fundamentals:     financialsOk    ? "✅ 财报三表+财务指标可用（股票详情页）" : incomeOk ? "⚠️ 部分财报数据可用" : "❌ 财务数据权限不足",
     fina_indicator:   finaIndicatorOk ? "✅ ROE/毛利率/资负率/流速比可用"        : "❌ 财务指标权限不足（fina_indicator）",
     financial_safety: balancesheetOk  ? "✅ 财务安全模块可用（资负率/流动比/速动比/商誉/应收/存货）" : "❌ 资产负债表权限不足（balancesheet），财务安全模块不可用",
+    cashflow_quality: cashflowOk      ? "✅ 现金流质量模块可用（三大现金流/FCF/经营CF÷净利润/销售回款）" : "❌ 现金流量表权限不足（cashflow），现金流质量模块不可用",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
@@ -297,6 +322,7 @@ export async function GET(req: NextRequest) {
     statusSummary,
     profitabilityDetail,
     financialSafetyDetail,
+    cashflowQualityDetail,
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
       : undefined,
