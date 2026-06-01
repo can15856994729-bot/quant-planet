@@ -257,7 +257,7 @@ export async function getBalanceSheet(
   return callTushare(
     "balancesheet",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories",
+    "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr",
     7 * 24 * 60 * 60 * 1000,
   );
 }

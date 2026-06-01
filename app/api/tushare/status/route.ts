@@ -109,20 +109,20 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
       "ann_date,end_date,total_revenue,revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps"),
 
-    // balancesheet：贵州茅台近90天
+    // balancesheet：贵州茅台近90天，测试完整财务安全字段
     testCap("balancesheet",
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int"),
+      "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr"),
 
     // cashflow：贵州茅台近90天
     testCap("cashflow",
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
       "end_date,n_cashflow_act"),
 
-    // fina_indicator：贵州茅台近90天，测试完整盈利能力字段
+    // fina_indicator：贵州茅台近90天，测试完整盈利能力 + 财务安全字段
     testCap("fina_indicator",
       { ts_code: "600519.SH", start_date: start90, end_date: end },
-      "ann_date,end_date,eps,roe,grossprofit_margin,netprofit_margin,debt_to_assets,profit_dedt,or_yoy,netprofit_yoy"),
+      "ann_date,end_date,eps,roe,grossprofit_margin,netprofit_margin,debt_to_assets,current_ratio,quick_ratio,profit_dedt,or_yoy,netprofit_yoy"),
   ]);
 
   return {
@@ -225,6 +225,35 @@ export async function GET(req: NextRequest) {
       : "利润表不可用，盈利能力模块将显示权限不足提示",
   };
 
+  // 财务安全接口专项说明（供财务安全模块诊断用）
+  const financialSafetyDetail = {
+    testStock: "600519.SH（贵州茅台）",
+    balancesheet: {
+      status:       caps.balancesheet.status,
+      rowCount:     caps.balancesheet.rowCount ?? 0,
+      testedFields: "total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr",
+      available:    balancesheetOk,
+    },
+    fina_indicator: {
+      status:       caps.fina_indicator.status,
+      rowCount:     caps.fina_indicator.rowCount ?? 0,
+      testedFields: "debt_to_assets,current_ratio,quick_ratio",
+      available:    finaIndicatorOk,
+    },
+    income: {
+      status:       caps.income.status,
+      rowCount:     caps.income.rowCount ?? 0,
+      testedFields: "revenue（用于计算应收占比/存货占比）",
+      available:    incomeOk,
+    },
+    financialSafetyApi: "/api/tushare/financial-safety?tsCode=600519.SH",
+    note: balancesheetOk
+      ? finaIndicatorOk
+        ? "资产负债表 + 财务指标均可用，财务安全模块正常"
+        : "资产负债表可用，但 fina_indicator 不可用（流动/速动比率将降级为自行计算）"
+      : "资产负债表不可用，财务安全模块将显示权限不足提示",
+  };
+
   // ── 功能可用性说明 ────────────────────────────────────────────────
   const featureSummary = {
     stock_pool:       stockPoolOk     ? "✅ 沪深北全量股票池（Tushare）"      : "⚠️ 降级为东方财富+本地股票池",
@@ -235,6 +264,7 @@ export async function GET(req: NextRequest) {
     backtest:         backtestOk      ? "✅ 真实历史回测可用"                   : "❌ Tushare daily 权限不足，回测锁定",
     fundamentals:     financialsOk    ? "✅ 财报三表+财务指标可用（股票详情页）" : incomeOk ? "⚠️ 部分财报数据可用" : "❌ 财务数据权限不足",
     fina_indicator:   finaIndicatorOk ? "✅ ROE/毛利率/资负率/流速比可用"        : "❌ 财务指标权限不足（fina_indicator）",
+    financial_safety: balancesheetOk  ? "✅ 财务安全模块可用（资负率/流动比/速动比/商誉/应收/存货）" : "❌ 资产负债表权限不足（balancesheet），财务安全模块不可用",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
@@ -266,6 +296,7 @@ export async function GET(req: NextRequest) {
     featureSummary,
     statusSummary,
     profitabilityDetail,
+    financialSafetyDetail,
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
       : undefined,

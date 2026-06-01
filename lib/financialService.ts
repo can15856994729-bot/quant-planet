@@ -363,3 +363,329 @@ export async function getProfitSummary(
   _profitCache.set(cacheKey, { result, expiresAt: Date.now() + PROFIT_CACHE_TTL });
   return result;
 }
+
+// ════════════════════════════════════════════════════════════════════════
+//  财务安全 / 资产负债分析  (Task C)
+// ════════════════════════════════════════════════════════════════════════
+
+// ── 缓存 ─────────────────────────────────────────────────────────────
+const SAFETY_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+interface SafetyCacheEntry {
+  result:    BalanceSafetySummaryResult;
+  expiresAt: number;
+}
+const _safetyCache = new Map<string, SafetyCacheEntry>();
+
+/** 清除财务安全缓存（支持按 tsCode 精确清除） */
+export function clearSafetyCache(tsCode?: string): void {
+  if (tsCode) {
+    for (const key of _safetyCache.keys()) {
+      if (key.startsWith(tsCode + "::")) _safetyCache.delete(key);
+    }
+  } else {
+    _safetyCache.clear();
+  }
+}
+
+// ── 字段列表 ─────────────────────────────────────────────────────────
+
+/** balancesheet 接口请求字段 */
+export const BALANCE_SHEET_FIELDS =
+  "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr";
+
+/** fina_indicator 接口请求字段（财务安全维度） */
+export const FINA_SAFETY_FIELDS =
+  "ann_date,end_date,debt_to_assets,current_ratio,quick_ratio";
+
+// ── 类型定义 ─────────────────────────────────────────────────────────
+
+export type SafetyDataStatus = "ok" | "permission_denied" | "error" | "empty" | "no_token";
+
+/**
+ * 资产负债 + 财务安全核心字段（单报告期）
+ * null 代表数据缺失，绝不用 0 冒充。
+ */
+export interface BalanceSafetySummaryItem {
+  tsCode:    string;
+  symbol:    string;
+  reportDate: string;  // end_date YYYYMMDD
+  annDate:   string;   // ann_date YYYYMMDD
+  period:    string;   // "2024年年报" 等
+
+  // ── 资产负债表核心（单位：元）────────────────────────────────────
+  totalAssets:        number | null;  // 总资产
+  totalLiabilities:   number | null;  // 总负债
+  netAssets:          number | null;  // 净资产（归母，total_hldr_eqy_exc_min_int）
+  shareholderEquity:  number | null;  // 全口径股东权益（含少数股东）
+  monetaryFunds:      number | null;  // 货币资金
+  currentAssets:      number | null;  // 流动资产
+  currentLiabilities: number | null;  // 流动负债
+  accountsReceivable: number | null;  // 应收账款
+  inventory:          number | null;  // 存货
+  goodwill:           number | null;  // 商誉
+  shortTermBorrowings: number | null; // 短期借款
+  longTermBorrowings:  number | null; // 长期借款
+
+  // ── 盈利表辅助（用于比率计算，单位：元）──────────────────────────
+  revenue: number | null;  // 营业收入（来自 income）
+
+  // ── 安全比率（内部用小数，如 0.65 = 65%）────────────────────────
+  debtToAssets:         number | null;  // 资产负债率（优先 fina_indicator，次计算）
+  currentRatio:         number | null;  // 流动比率（优先 fina_indicator）
+  quickRatio:           number | null;  // 速动比率（优先 fina_indicator）
+  goodwillToNetAssets:  number | null;  // 商誉占净资产比
+  receivablesToRevenue: number | null;  // 应收账款占收入比
+  inventoryToRevenue:   number | null;  // 存货占收入比
+
+  source:    "Tushare";
+  updatedAt: string;
+}
+
+export interface BalanceSafetySummaryResult {
+  ok:                   boolean;
+  tsCode:               string;
+  symbol:               string;
+  items:                BalanceSafetySummaryItem[];
+  balanceSheetStatus:   SafetyDataStatus;
+  finaIndicatorStatus:  SafetyDataStatus;
+  incomeStatus:         SafetyDataStatus;
+  fromCache?:           boolean;
+  error?:               string;
+  updatedAt:            string;
+}
+
+// ── 原始数据获取 ──────────────────────────────────────────────────────
+
+/**
+ * 获取资产负债表原始数据
+ */
+export async function getBalanceSheetStatement(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<{ records: TushareRecord[]; status: SafetyDataStatus; error?: string }> {
+  const res = await callTushare(
+    "balancesheet",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    BALANCE_SHEET_FIELDS,
+    SAFETY_CACHE_TTL,
+  );
+  if (!res.ok) {
+    return {
+      records: [],
+      status:  res.permissionDenied ? "permission_denied" : "error",
+      error:   res.error,
+    };
+  }
+  const deduped = dedupeDesc(res.records);
+  return { records: deduped, status: deduped.length > 0 ? "ok" : "empty" };
+}
+
+/**
+ * 获取财务安全指标原始数据（fina_indicator 接口，专为安全维度）
+ */
+export async function getFinancialSafetyMetrics(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<{ records: TushareRecord[]; status: SafetyDataStatus; error?: string }> {
+  const res = await callTushare(
+    "fina_indicator",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    FINA_SAFETY_FIELDS,
+    SAFETY_CACHE_TTL,
+  );
+  if (!res.ok) {
+    return {
+      records: [],
+      status:  res.permissionDenied ? "permission_denied" : "error",
+      error:   res.error,
+    };
+  }
+  const deduped = dedupeDesc(res.records);
+  return { records: deduped, status: deduped.length > 0 ? "ok" : "empty" };
+}
+
+// ── 安全比率计算工具 ──────────────────────────────────────────────────
+
+/** 安全除法：分母为 0 / null → null */
+function safeDiv(num: number | null, den: number | null): number | null {
+  if (num == null || den == null || den === 0) return null;
+  return num / den;
+}
+
+// ── 核心聚合函数 ──────────────────────────────────────────────────────
+
+/**
+ * 获取财务安全摘要（最近 periods 期）
+ *
+ * @param tsCode   Tushare 股票代码，如 "600519.SH"
+ * @param periods  返回期数（默认 8 期）
+ * @param refresh  为 true 时强制绕过缓存
+ */
+export async function getFinancialSafetySummary(
+  tsCode:  string,
+  periods  = 8,
+  refresh  = false,
+): Promise<BalanceSafetySummaryResult> {
+  const now = new Date().toISOString();
+
+  // Token 检查
+  if (!hasTushareToken()) {
+    return {
+      ok: false, tsCode, symbol: tsCodeToSymbol(tsCode), items: [],
+      balanceSheetStatus: "no_token",
+      finaIndicatorStatus: "no_token",
+      incomeStatus: "no_token",
+      error: "TUSHARE_TOKEN 未配置，无法获取资产负债表数据",
+      updatedAt: now,
+    };
+  }
+
+  const cacheKey = `safety::${tsCode}::${periods}`;
+  if (!refresh) {
+    const hit = _safetyCache.get(cacheKey);
+    if (hit && Date.now() < hit.expiresAt) {
+      return { ...hit.result, fromCache: true };
+    }
+  }
+
+  const symbol    = tsCodeToSymbol(tsCode);
+  // 财报数据取近 3 年（覆盖 12 期季报）
+  const startDate = daysAgoStr(3 * 365 + 90);
+  const endDate   = todayStr();
+
+  // 并行拉取三个数据源
+  const [bsRes, finaRes, incRes] = await Promise.all([
+    getBalanceSheetStatement(tsCode, startDate, endDate),
+    getFinancialSafetyMetrics(tsCode, startDate, endDate),
+    getIncomeStatement(tsCode, startDate, endDate),
+  ]);
+
+  // 如果资产负债表权限不足
+  if (bsRes.status === "permission_denied") {
+    const result: BalanceSafetySummaryResult = {
+      ok: false, tsCode, symbol, items: [],
+      balanceSheetStatus: "permission_denied",
+      finaIndicatorStatus: finaRes.status,
+      incomeStatus: incRes.status,
+      error: "当前 Tushare 权限不足，无法获取资产负债表数据",
+      updatedAt: now,
+    };
+    return result;
+  }
+
+  // 资产负债表无记录
+  if (bsRes.records.length === 0) {
+    const result: BalanceSafetySummaryResult = {
+      ok: false, tsCode, symbol, items: [],
+      balanceSheetStatus: bsRes.status,
+      finaIndicatorStatus: finaRes.status,
+      incomeStatus: incRes.status,
+      error: "该股票资产负债表数据暂缺",
+      updatedAt: now,
+    };
+    return result;
+  }
+
+  // 建立快速查找表
+  const finaByDate = new Map<string, TushareRecord>();
+  for (const r of finaRes.records) finaByDate.set(String(r.end_date ?? ""), r);
+
+  const incByDate = new Map<string, TushareRecord>();
+  for (const r of incRes.records) incByDate.set(String(r.end_date ?? ""), r);
+
+  const bsSlice = bsRes.records.slice(0, periods);
+
+  const items: BalanceSafetySummaryItem[] = bsSlice.map((bs) => {
+    const ed   = String(bs.end_date ?? "");
+    const fina = finaByDate.get(ed);
+    const inc  = incByDate.get(ed);
+
+    // ── 资产负债核心字段 ──────────────────────────────────────────
+    const totalAssets        = toNum(bs.total_assets);
+    const totalLiabilities   = toNum(bs.total_liab);
+    const netAssets          = toNum(bs.total_hldr_eqy_exc_min_int);
+    const shareholderEquity  = toNum(bs.total_hldr_eqy_inc_min_int) ?? netAssets;
+    const monetaryFunds      = toNum(bs.money_cap);
+    const currentAssets      = toNum(bs.total_cur_assets);
+    const currentLiabilities = toNum(bs.total_cur_liab);
+    const accountsReceivable = toNum(bs.accounts_receiv);
+    const inventory          = toNum(bs.inventories);
+    const goodwill           = toNum(bs.goodwill);
+    const shortTermBorrowings = toNum(bs.st_borr);
+    const longTermBorrowings  = toNum(bs.lt_borr);
+
+    // ── 营收（来自 income）────────────────────────────────────────
+    const revenue = inc ? (toNum(inc.revenue) ?? toNum(inc.total_revenue)) : null;
+
+    // ── 安全比率（优先 fina_indicator，再自行计算）────────────────
+    // debt_to_assets: Tushare fina_indicator 返回百分比形式（如 40.5 = 40.5%），
+    // 内部统一存储为小数（÷100），与自行计算（totalLiab/totalAssets）保持一致。
+    const debtToAssetsRaw = toNum(fina?.debt_to_assets);
+    const debtToAssets = debtToAssetsRaw != null
+      ? debtToAssetsRaw / 100
+      : safeDiv(totalLiabilities, totalAssets);
+
+    // current_ratio: fina 直接给比值
+    const currentRatio = toNum(fina?.current_ratio) ??
+      safeDiv(currentAssets, currentLiabilities);
+
+    // quick_ratio: fina 直接给比值
+    const quickRatio = toNum(fina?.quick_ratio) ??
+      safeDiv(
+        currentAssets != null && inventory != null ? currentAssets - inventory : null,
+        currentLiabilities,
+      );
+
+    // 商誉占净资产
+    const goodwillToNetAssets = safeDiv(goodwill, netAssets);
+
+    // 应收账款占收入
+    const receivablesToRevenue = safeDiv(accountsReceivable, revenue);
+
+    // 存货占收入
+    const inventoryToRevenue = safeDiv(inventory, revenue);
+
+    return {
+      tsCode,
+      symbol,
+      reportDate: ed,
+      annDate:    String(bs.ann_date ?? ""),
+      period:     toPeriodLabel(ed),
+      totalAssets,
+      totalLiabilities,
+      netAssets,
+      shareholderEquity,
+      monetaryFunds,
+      currentAssets,
+      currentLiabilities,
+      accountsReceivable,
+      inventory,
+      goodwill,
+      shortTermBorrowings,
+      longTermBorrowings,
+      revenue,
+      debtToAssets,
+      currentRatio,
+      quickRatio,
+      goodwillToNetAssets,
+      receivablesToRevenue,
+      inventoryToRevenue,
+      source:    "Tushare",
+      updatedAt: now,
+    } satisfies BalanceSafetySummaryItem;
+  });
+
+  const result: BalanceSafetySummaryResult = {
+    ok: true, tsCode, symbol, items,
+    balanceSheetStatus:  bsRes.status,
+    finaIndicatorStatus: finaRes.status,
+    incomeStatus:        incRes.status,
+    updatedAt: now,
+  };
+
+  _safetyCache.set(cacheKey, { result, expiresAt: Date.now() + SAFETY_CACHE_TTL });
+  return result;
+}

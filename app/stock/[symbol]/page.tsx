@@ -10,6 +10,7 @@ import StockPriceCard from "./StockPriceCard";
 import WatchlistButton from "@/components/ui/WatchlistButton";
 import FinancialReport from "@/components/financial/FinancialReport";
 import ProfitabilityCard from "@/components/financial/ProfitabilityCard";
+import FinancialSafetyCard from "@/components/financial/FinancialSafetyCard";
 import MoneyFlowCard from "@/components/MoneyFlowCard";
 import OrderBookCard from "@/components/OrderBookCard";
 import type { Stock } from "@/types";
@@ -261,6 +262,18 @@ export default async function StockDetailPage({
         ───────────────────────────────────────────────────────── */}
         {market === "A" && /^\d{6}$/.test(stock.symbol) && (
           <ProfitabilityCard
+            symbol={stock.symbol}
+            stockName={name}
+          />
+        )}
+
+        {/* ─────────────────────────────────────────────────────────
+            财务安全模块（仅 A 股，6 位代码）
+            数据来源：Tushare balancesheet + fina_indicator + income
+            服务端 API Route 调用，不暴露 TUSHARE_TOKEN
+        ───────────────────────────────────────────────────────── */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <FinancialSafetyCard
             symbol={stock.symbol}
             stockName={name}
           />
