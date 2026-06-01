@@ -239,7 +239,7 @@ export async function getIncome(
   return callTushare(
     "income",
     { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
-    "ann_date,end_date,total_revenue,revenue,operate_profit,n_income_attr_p,n_income,admin_exp,sell_exp,fin_exp,rd_exp",
+    "ann_date,end_date,total_revenue,revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps,admin_exp,sell_exp,fin_exp,rd_exp",
     7 * 24 * 60 * 60 * 1000,
   );
 }
@@ -293,7 +293,7 @@ export async function getFinancialIndicator(
   return callTushare(
     "fina_indicator",
     { ts_code: tsCode, start_date: startDate, end_date: endDate },
-    "ann_date,end_date,eps,bps,roe,netprofit_margin,grossprofit_margin,debt_to_assets,current_ratio,quick_ratio,assets_turn",
+    "ann_date,end_date,eps,bps,roe,netprofit_margin,grossprofit_margin,debt_to_assets,current_ratio,quick_ratio,assets_turn,profit_dedt,or_yoy,netprofit_yoy",
     7 * 24 * 60 * 60 * 1000,
   );
 }

@@ -104,10 +104,10 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
       { exchange: "SSE", start_date: daysAgoStr(7), end_date: end, is_open: "1" },
       "cal_date,is_open"),
 
-    // income：贵州茅台近90天（季报周期）
+    // income：贵州茅台近90天（季报周期），测试完整盈利能力字段
     testCap("income",
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "end_date,n_income_attr_p,total_revenue"),
+      "ann_date,end_date,total_revenue,revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps"),
 
     // balancesheet：贵州茅台近90天
     testCap("balancesheet",
@@ -119,10 +119,10 @@ async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
       "end_date,n_cashflow_act"),
 
-    // fina_indicator：贵州茅台近90天
+    // fina_indicator：贵州茅台近90天，测试完整盈利能力字段
     testCap("fina_indicator",
       { ts_code: "600519.SH", start_date: start90, end_date: end },
-      "end_date,roe,grossprofit_margin,netprofit_margin,debt_to_assets"),
+      "ann_date,end_date,eps,roe,grossprofit_margin,netprofit_margin,debt_to_assets,profit_dedt,or_yoy,netprofit_yoy"),
   ]);
 
   return {
@@ -202,6 +202,29 @@ export async function GET(req: NextRequest) {
     finLabel(caps.fina_indicator, "财务指标(fina_indicator)"),
   ];
 
+  // 盈利能力接口专项说明（供盈利能力模块诊断用）
+  const profitabilityDetail = {
+    testStock:       "600519.SH（贵州茅台）",
+    income: {
+      status:     caps.income.status,
+      rowCount:   caps.income.rowCount ?? 0,
+      testedFields: "revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps",
+      available:  incomeOk,
+    },
+    fina_indicator: {
+      status:     caps.fina_indicator.status,
+      rowCount:   caps.fina_indicator.rowCount ?? 0,
+      testedFields: "eps,roe,grossprofit_margin,netprofit_margin,profit_dedt,or_yoy,netprofit_yoy",
+      available:  finaIndicatorOk,
+    },
+    profitSummaryApi: "/api/tushare/profit-summary?tsCode=600519.SH",
+    note: incomeOk && finaIndicatorOk
+      ? "利润表 + 财务指标均可用，盈利能力模块正常"
+      : incomeOk
+      ? "利润表可用，但财务指标不可用（毛利率/净利率/扣非/YoY 数据可能缺失）"
+      : "利润表不可用，盈利能力模块将显示权限不足提示",
+  };
+
   // ── 功能可用性说明 ────────────────────────────────────────────────
   const featureSummary = {
     stock_pool:       stockPoolOk     ? "✅ 沪深北全量股票池（Tushare）"      : "⚠️ 降级为东方财富+本地股票池",
@@ -242,6 +265,7 @@ export async function GET(req: NextRequest) {
     capabilities,
     featureSummary,
     statusSummary,
+    profitabilityDetail,
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
       : undefined,
