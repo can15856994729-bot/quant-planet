@@ -35,6 +35,10 @@ export default function StrategiesPage() {
       router.push("/strategies/st-limit-down-watch");
       return;
     }
+    if (strategyId === "st-limit-down-first-limit-up") {
+      router.push("/strategies/st-limit-down-first-limit-up");
+      return;
+    }
     // 多因子轮动策略直接到回测页（默认模式）
     if (strategyId === "a-share-multi-factor") {
       router.push("/backtest");
