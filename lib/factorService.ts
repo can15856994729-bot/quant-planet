@@ -108,6 +108,29 @@ export interface ValuationFactors {
   unavailable?: boolean;
 }
 
+/**
+ * 基本面综合评分因子数据（可选，来自 fundamentalScoreService）
+ * 传入后可在策略评分中融合基本面综合评分维度。
+ */
+export interface FundamentalScoreFactors {
+  /** 总分（0-100） */
+  totalScore:        number | null;
+  /** 评级 */
+  rating:            "优秀" | "良好" | "一般" | "较差" | null;
+  /** 盈利能力评分（0-100） */
+  profitabilityScore: number | null;
+  /** 成长能力评分（0-100） */
+  growthScore:        number | null;
+  /** 现金流质量评分（0-100） */
+  cashflowScore:      number | null;
+  /** 财务安全评分（0-100） */
+  safetyScore:        number | null;
+  /** 估值合理性评分（0-100） */
+  valuationScore:     number | null;
+  /** 数据不可用时为 true */
+  unavailable?: boolean;
+}
+
 export interface FactorScores {
   // Raw 0-100 per factor
   trendScore:     number;

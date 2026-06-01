@@ -14,6 +14,8 @@ import FinancialSafetyCard from "@/components/financial/FinancialSafetyCard";
 import CashflowCard from "@/components/financial/CashflowCard";
 import ValuationCard from "@/components/financial/ValuationCard";
 import FinancialTrendCard from "@/components/financial/FinancialTrendCard";
+import FundamentalScoreCard from "@/components/financial/FundamentalScoreCard";
+import AnnouncementCard from "@/components/financial/AnnouncementCard";
 import MoneyFlowCard from "@/components/MoneyFlowCard";
 import OrderBookCard from "@/components/OrderBookCard";
 import type { Stock } from "@/types";
@@ -327,6 +329,32 @@ export default async function StockDetailPage({
         {market === "A" && /^\d{6}$/.test(stock.symbol) && (
           <FinancialReport
             tsCode={symbolToTsCode(stock.symbol)}
+            stockName={name}
+          />
+        )}
+
+        {/* ─────────────────────────────────────────────────────────
+            基本面综合评分模块（仅 A 股，6 位代码）
+            5 维度评分：盈利 / 成长 / 现金流 / 财务安全 / 估值
+            服务端 API Route 调用，不暴露 TUSHARE_TOKEN
+        ───────────────────────────────────────────────────────── */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <div>
+            <h2 className="font-bold text-[13px] mb-2" style={{ color: "#94A3B8" }}>基本面综合评分</h2>
+            <FundamentalScoreCard
+              symbol={stock.symbol}
+              stockName={name}
+            />
+          </div>
+        )}
+
+        {/* ─────────────────────────────────────────────────────────
+            公告/事件模块（仅 A 股，6 位代码）
+            数据来源：暂未接入，stub 显示
+        ───────────────────────────────────────────────────────── */}
+        {market === "A" && /^\d{6}$/.test(stock.symbol) && (
+          <AnnouncementCard
+            symbol={stock.symbol}
             stockName={name}
           />
         )}

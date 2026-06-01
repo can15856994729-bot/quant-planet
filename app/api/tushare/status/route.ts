@@ -322,6 +322,12 @@ export async function GET(req: NextRequest) {
       : incomeOk
       ? "⚠️ 财报趋势模块部分可用（部分字段来源暂缺，已启用降级逻辑）"
       : "❌ income 权限不足，财报趋势模块不可用",
+    fundamental_score: (incomeOk && finaIndicatorOk && cashflowOk && balancesheetOk && valuationOk)
+      ? "✅ 基本面综合评分可用（5维度：盈利/成长/现金流/财务安全/估值，0-100分）"
+      : (incomeOk && finaIndicatorOk)
+      ? "⚠️ 基本面综合评分部分可用（估值维度或现金流/安全维度数据缺失，评分降级）"
+      : "❌ 核心财报数据不可用，基本面综合评分不可用",
+    announcements: "⚠️ 公告/事件数据暂未接入（stub），后续版本接入",
     realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
     sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
   };
@@ -359,6 +365,12 @@ export async function GET(req: NextRequest) {
     financialTrendsApis: [
       "/api/tushare/financial-trends?tsCode=600519.SH",
       "/api/stocks/600519/financials/trends",
+    ],
+    fundamentalScoreApis: [
+      "/api/tushare/fundamental-score?tsCode=600519.SH",
+      "/api/stocks/600519/fundamental-score",
+      "/api/stocks/600519/st-fundamental-risk",
+      "/api/stocks/600519/announcements",
     ],
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
