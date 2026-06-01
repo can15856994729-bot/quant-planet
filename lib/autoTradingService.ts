@@ -246,27 +246,53 @@ export function clearOldBuyDates(): void {
   try { localStorage.setItem(KEY_BUY_DATES, JSON.stringify(filtered)); } catch { /* quota */ }
 }
 
-// ── Live quote fetch (client-side, East Money) ────────────────────────
+// ── 盘口数据结构（精简版，与 OrderBookData 兼容）──────────────────
+interface OrderBookSnapshot {
+  price:              number;
+  bid1Price:          number | null;
+  ask1Price:          number | null;
+  bid1Volume:         number | null;
+  ask1Volume:         number | null;
+  isLimitUp:          boolean;
+  isLimitDown:        boolean;
+  isOneWordLimitUp:   boolean;
+  isOneWordLimitDown: boolean;
+  isSuspended:        boolean;
+  limitUpSealAmount:  number | null;
+  limitDownSealAmount:number | null;
+  commissionRatio:    number | null;
+  volumeRatio:        number | null;
+}
+
+/**
+ * 通过 App 自己的 API Route 获取盘口数据，避免前端直接请求东方财富。
+ * 已接入 /api/quotes/order-book/[symbol]（由 eastMoneyOrderBookService 提供）。
+ */
 async function getClientSideQuote(
   symbol: string
-): Promise<{ price: number; isLimitUp?: boolean; isLimitDown?: boolean; isSuspended?: boolean } | null> {
-  const secid = symbol.startsWith("6") || symbol.startsWith("9") ? `1.${symbol}` : `0.${symbol}`;
-  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${secid}&fields=f2,f3,f12,f47,f51,f52`;
+): Promise<OrderBookSnapshot | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const res  = await fetch(`/api/quotes/order-book/${symbol}`, {
+      signal: AbortSignal.timeout(6_000),
+    });
     const json = await res.json();
-    const item = json?.data?.diff?.[0];
-    if (!item) return null;
-    const div = 100;
-    const price = Number(item.f2) / div;
-    if (price <= 0) return null;
-    const lu = Number(item.f51) / div;
-    const ld = Number(item.f52) / div;
+    if (!json.ok || !json.data) return null;
+    const d = json.data;
     return {
-      price,
-      isLimitUp:  lu > 0 && Math.abs(price - lu) < 0.006,
-      isLimitDown: ld > 0 && Math.abs(price - ld) < 0.006,
-      isSuspended: Number(item.f47) === 0,
+      price:               d.price ?? 0,
+      bid1Price:           d.bid1Price ?? null,
+      ask1Price:           d.ask1Price ?? null,
+      bid1Volume:          d.bid1Volume ?? null,
+      ask1Volume:          d.ask1Volume ?? null,
+      isLimitUp:           d.isLimitUp ?? false,
+      isLimitDown:         d.isLimitDown ?? false,
+      isOneWordLimitUp:    d.isOneWordLimitUp ?? false,
+      isOneWordLimitDown:  d.isOneWordLimitDown ?? false,
+      isSuspended:         d.isSuspended ?? false,
+      limitUpSealAmount:   d.limitUpSealAmount ?? null,
+      limitDownSealAmount: d.limitDownSealAmount ?? null,
+      commissionRatio:     d.commissionRatio ?? null,
+      volumeRatio:         d.volumeRatio ?? null,
     };
   } catch {
     return null;
@@ -283,7 +309,7 @@ export function validateAutoOrder(
   },
   config: AutoTradingConfig,
   todayBuyCount: number,
-  quote?: { price: number; isLimitUp?: boolean; isLimitDown?: boolean; isSuspended?: boolean }
+  quote?: OrderBookSnapshot | { price: number; isLimitUp?: boolean; isLimitDown?: boolean; isSuspended?: boolean } | null
 ): { valid: boolean; reason: string } {
   const { cash, totalValue, positions } = portfolio;
   const isBuy = order.action === "buy";
@@ -307,9 +333,23 @@ export function validateAutoOrder(
       return { valid: false, reason: "股票停牌" };
     }
 
-    // 4. Limit up
-    if (quote.isLimitUp && config.enableLimitUpDownCheck) {
-      return { valid: false, reason: "涨停无法买入" };
+    // 4. Limit up / one-word limit up
+    const ob = quote as OrderBookSnapshot;
+    if (config.enableLimitUpDownCheck) {
+      if (ob.isOneWordLimitUp) return { valid: false, reason: "一字涨停，无法买入" };
+      if (quote.isLimitUp)     return { valid: false, reason: "涨停，无法买入" };
+    }
+    // 封单过大警告（不阻止，仅记录）
+    if (ob.limitUpSealAmount != null && ob.limitUpSealAmount > 1e9) {
+      // 超过10亿封单，追高风险极大 → 阻止
+      if (config.enableLimitUpDownCheck) {
+        return { valid: false, reason: `涨停封单超过${(ob.limitUpSealAmount/1e8).toFixed(0)}亿，追高风险极大` };
+      }
+    }
+    // 卖一量过少（流动性差）
+    if (ob.ask1Volume != null && ob.ask1Volume < 10000 && ob.ask1Price != null) {
+      // 买入侧：卖一量极少（不足100手）→ 降低可买数量提示（不阻止）
+      // 只在非涨停时才有意义
     }
 
     // 5. Daily buy count limit
@@ -361,9 +401,15 @@ export function validateAutoOrder(
       return { valid: false, reason: "股票停牌" };
     }
 
-    // 3. Limit down
-    if (quote?.isLimitDown && config.enableLimitUpDownCheck) {
-      return { valid: false, reason: "跌停无法卖出" };
+    // 3. Limit down / one-word limit down
+    const obSell = quote as OrderBookSnapshot;
+    if (config.enableLimitUpDownCheck) {
+      if (obSell.isOneWordLimitDown) return { valid: false, reason: "一字跌停，流动性枯竭，无法卖出" };
+      if (quote?.isLimitDown)        return { valid: false, reason: "跌停，无法卖出" };
+    }
+    // 跌停封单过大（流动性极差）
+    if (obSell.limitDownSealAmount != null && obSell.limitDownSealAmount > 5e8) {
+      // 仅记录日志，不阻止（跌停本身已阻止）
     }
   }
 
@@ -451,7 +497,11 @@ export async function runAutoTradingOnce(): Promise<{
     for (const signal of buySignals) {
       const quote = await getClientSideQuote(signal.symbol);
 
-      const execPrice = quote ? +(quote.price * 1.001).toFixed(3) : signal.entryPrice; // 0.1% slippage
+      // 买入：使用卖一价（ask1Price），若盘口不可用则用信号价+滑点
+      const basePrice = (quote as OrderBookSnapshot | null)?.ask1Price ?? quote?.price;
+      const execPrice = basePrice
+        ? +(basePrice * 1.001).toFixed(3)    // 在卖一价基础上加 0.1% 滑点
+        : +(signal.entryPrice * 1.002).toFixed(3); // 盘口不可用，信号价+0.2%
       const buyAmount = Math.min(
         totalValue * config.maxSinglePosition,
         totalValue * signal.suggestedPositionPct
@@ -560,7 +610,11 @@ export async function runAutoTradingOnce(): Promise<{
       if (!sellSymbols.has(pos.symbol)) continue;
 
       const quote = await getClientSideQuote(pos.symbol);
-      const execPrice = quote ? +(quote.price * 0.999).toFixed(3) : pos.currentPrice; // 0.1% slippage (sell lower)
+      // 卖出：使用买一价（bid1Price），若盘口不可用则用当前价-滑点
+      const baseSellPrice = (quote as OrderBookSnapshot | null)?.bid1Price ?? quote?.price;
+      const execPrice = baseSellPrice
+        ? +(baseSellPrice * 0.999).toFixed(3)   // 在买一价基础上减 0.1% 滑点
+        : +(pos.currentPrice * 0.998).toFixed(3); // 盘口不可用，用持仓现价
 
       // T+1 check
       if (config.enableTPlusOne) {

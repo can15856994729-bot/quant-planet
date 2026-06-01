@@ -172,6 +172,65 @@ export interface Signal {
   read: boolean;
 }
 
+// ─── 盘口（五档委托） ────────────────────────────────────────────
+export interface OrderBookLevel {
+  level:  number;  // 1–5
+  price:  number;  // 元
+  volume: number;  // 股 (手 × 100)
+  amount: number;  // 元 = price × volume
+}
+
+export interface OrderBookData {
+  symbol:   string;
+  tsCode:   string;
+  name:     string;
+
+  // 行情摘要
+  price:         number;
+  prevClose:     number;
+  open:          number;
+  high:          number;
+  low:           number;
+  changePercent: number;   // 涨跌幅 % (e.g. 3.92)
+  volume:        number;   // 股
+  amount:        number;   // 元
+
+  // 买一 / 卖一
+  bid1Price:  number | null;  // 元
+  bid1Volume: number | null;  // 股
+  ask1Price:  number | null;  // 元
+  ask1Volume: number | null;  // 股
+
+  // 五档
+  bids: OrderBookLevel[];  // 买一→买五
+  asks: OrderBookLevel[];  // 卖一→卖五
+
+  // 委比、量比、内外盘
+  commissionRatio: number | null;  // 委比 %
+  volumeRatio:     number | null;  // 量比
+  innerVolume:     number | null;  // 内盘（手）
+  outerVolume:     number | null;  // 外盘（手）
+
+  // 涨跌停
+  limitUpPrice:     number | null;
+  limitDownPrice:   number | null;
+  isLimitUp:        boolean;
+  isLimitDown:      boolean;
+  isOneWordLimitUp:   boolean;  // 一字涨停
+  isOneWordLimitDown: boolean;  // 一字跌停
+  isSuspended:      boolean;
+
+  // 封单
+  limitUpSealVolume:   number | null;  // 涨停封单量（手）
+  limitUpSealAmount:   number | null;  // 涨停封单金额（元）
+  limitDownSealVolume: number | null;  // 跌停封单量（手）
+  limitDownSealAmount: number | null;  // 跌停封单金额（元）
+  sealAmount:          number | null;  // 当前封单金额（元）
+
+  updatedAt: string;
+  source:    "EastMoney";
+}
+
 // ─── 指数 ─────────────────────────────────────────────────────
 export interface Index {
   name: string;

@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect, useRef, useMemo, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Plus, Minus, Clock, Info, ChevronRight, Search, X, Loader2,
   AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, BarChart3, ChevronDown, Bot,
+  BookOpen,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { getStockBySymbol } from "@/lib/stockService";
@@ -14,6 +15,7 @@ import { useStockSearch } from "@/lib/useStockSearch";
 import { useStockQuotes } from "@/lib/useStockQuote";
 import { useSimStore, simTotals, calcTradeFee, calcFeeLabel } from "@/lib/simStore";
 import type { SimPos } from "@/lib/simStore";
+import type { OrderBookData } from "@/types";
 
 type Tab = "持仓" | "成交" | "下单";
 
@@ -62,6 +64,32 @@ function SimTradingContent() {
   );
   const { quotes: liveQuotes } = useStockQuotes(allSymbols);
 
+  // ── 盘口数据（买入用卖一价，卖出用买一价）──────────────────
+  const [buyOrderBook,  setBuyOrderBook]  = useState<OrderBookData | null>(null);
+  const [sellOrderBook, setSellOrderBook] = useState<OrderBookData | null>(null);
+
+  /** 获取指定股票的盘口，仅限 A 股 */
+  const fetchOB = useCallback(async (sym: string): Promise<OrderBookData | null> => {
+    if (!/^\d{6}$/.test(sym)) return null;
+    try {
+      const res  = await fetch(`/api/quotes/order-book/${sym}`);
+      const json = await res.json();
+      return json.ok && json.data ? (json.data as OrderBookData) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // 买入选股变化时刷新盘口
+  useEffect(() => {
+    setBuyOrderBook(null);
+    fetchOB(selectedStock.symbol).then(ob => setBuyOrderBook(ob));
+    const t = setInterval(() => {
+      fetchOB(selectedStock.symbol).then(ob => { if (ob) setBuyOrderBook(ob); });
+    }, 5_000);
+    return () => clearInterval(t);
+  }, [selectedStock.symbol, fetchOB]);
+
   // Sync live prices into store (throttled: only when there's a real change)
   useEffect(() => {
     const priceMap: Record<string, number> = {};
@@ -100,22 +128,45 @@ function SimTradingContent() {
   const [pickSearch,    setPickSearch]    = useState("");
   const { results: pickerList, loading: searchLoading } = useStockSearch(pickSearch);
 
-  // Update buy price from live quote (unless manually edited)
+  // 买入价格优先使用卖一价（ask1Price），否则用最新价
   useEffect(() => {
-    const lp = liveQuotes[selectedStock.symbol]?.price;
-    if (lp && lp > 0 && !priceEditedRef.current) setOrderPrice(lp.toFixed(2));
-  }, [liveQuotes, selectedStock.symbol]);
+    if (priceEditedRef.current) return;
+    const ask1 = buyOrderBook?.ask1Price;
+    const lp   = liveQuotes[selectedStock.symbol]?.price;
+    const ref  = (ask1 && ask1 > 0) ? ask1 : (lp && lp > 0 ? lp : undefined);
+    if (ref) setOrderPrice(ref.toFixed(2));
+  }, [buyOrderBook, liveQuotes, selectedStock.symbol]);
 
   function selectStock(s: StockInfo) {
     setSelectedStock(s);
     priceEditedRef.current = false;
-    const lp = liveQuotes[s.symbol]?.price;
-    setOrderPrice((lp && lp > 0 ? lp : s.price).toFixed(2));
+    setBuyOrderBook(null);
+    // 立即尝试获取盘口（以便买入默认用卖一价）
+    fetchOB(s.symbol).then(ob => {
+      setBuyOrderBook(ob);
+      if (!priceEditedRef.current) {
+        const ask1 = ob?.ask1Price;
+        const lp   = liveQuotes[s.symbol]?.price;
+        const ref  = (ask1 && ask1 > 0) ? ask1 : (lp && lp > 0 ? lp : s.price);
+        setOrderPrice(ref.toFixed(2));
+      }
+    });
     setShowPicker(false);
     setPickSearch("");
   }
 
+  // 买入风控：涨停/一字涨停/停牌 时禁止买入
+  const buyBlocked    = !!(buyOrderBook?.isLimitUp || buyOrderBook?.isSuspended);
+  const buyBlockedMsg = buyOrderBook?.isSuspended
+    ? "股票停牌，无法买入"
+    : buyOrderBook?.isOneWordLimitUp
+    ? "一字涨停，无法买入"
+    : buyOrderBook?.isLimitUp
+    ? "股票涨停，无法买入"
+    : "";
+
   function handleBuyOrder() {
+    if (buyBlocked) return;
     const price  = parseFloat(orderPrice) || 0;
     const shares = parseInt(orderShares) || 0;
     if (price > 0 && shares > 0) {
@@ -138,8 +189,23 @@ function SimTradingContent() {
   const [sellCustomQty,  setSellCustomQty]  = useState("100");
   const [sellSuccess,    setSellSuccess]    = useState<{ shares: number; proceeds: number } | null>(null);
 
-  const sellPos       = positions.find(p => p.symbol === sellSymbol);
-  const sellLivePrice = sellSymbol ? (liveQuotes[sellSymbol]?.price ?? sellPos?.currentPrice ?? 0) : 0;
+  const sellPos        = positions.find(p => p.symbol === sellSymbol);
+  // 卖出优先用买一价（bid1Price），次选最新价
+  const sellBid1      = sellOrderBook?.bid1Price ?? null;
+  const sellLivePrice = sellSymbol
+    ? (sellBid1 && sellBid1 > 0
+        ? sellBid1
+        : liveQuotes[sellSymbol]?.price ?? sellPos?.currentPrice ?? 0)
+    : 0;
+  // 盘口限制判断
+  const sellBlocked   = !!(sellOrderBook?.isLimitDown || sellOrderBook?.isSuspended);
+  const sellBlockedMsg = sellOrderBook?.isSuspended
+    ? "股票停牌，无法卖出"
+    : sellOrderBook?.isOneWordLimitDown
+    ? "一字跌停，流动性枯竭，无法卖出"
+    : sellOrderBook?.isLimitDown
+    ? "股票跌停，当前卖出受限"
+    : "";
   const sellMaxShares = sellPos?.shares ?? 0;
   const sellQty       = sellQtyFromMode(sellQtyMode, sellMaxShares, parseInt(sellCustomQty) || 0);
   const validSellQty  = Math.min(Math.max(1, sellQty), sellMaxShares);
@@ -155,7 +221,10 @@ function SimTradingContent() {
     const pos = positions.find(p => p.symbol === symbol);
     setSellCustomQty(String(pos?.shares ?? 100));
     setSellSuccess(null);
+    setSellOrderBook(null);
     setShowSellSheet(true);
+    // 异步获取该股票盘口（用于买一价和风控）
+    fetchOB(symbol).then(ob => setSellOrderBook(ob));
   }
 
   function executeSell() {
@@ -582,12 +651,42 @@ function SimTradingContent() {
                 </div>
               ) : (
                 <>
+                  {/* 盘口参考 */}
+                  {sellOrderBook && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-2"
+                      style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                      <BookOpen size={11} color="#EF4444" className="flex-shrink-0" />
+                      <span className="text-[10px]" style={{ color: "#EF4444" }}>盘口</span>
+                      <span className="text-[10px] flex-1" style={{ color: "#64748B" }}>
+                        买一 <span className="font-bold num" style={{ color: "#EF4444" }}>
+                          {sellOrderBook.bid1Price?.toFixed(2) ?? "--"}
+                        </span>
+                        <span className="mx-2">·</span>
+                        卖一 <span className="font-bold num" style={{ color: "#22C55E" }}>
+                          {sellOrderBook.ask1Price?.toFixed(2) ?? "--"}
+                        </span>
+                      </span>
+                      {sellBid1 && (
+                        <span className="text-[9px] px-1 py-0.5 rounded"
+                          style={{ background: "rgba(239,68,68,0.12)", color: "#EF4444" }}>买一价</span>
+                      )}
+                    </div>
+                  )}
+                  {sellBlocked && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-2"
+                      style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                      <AlertTriangle size={12} color="#EF4444" className="flex-shrink-0" />
+                      <span className="text-[11px] font-semibold" style={{ color: "#EF4444" }}>{sellBlockedMsg}</span>
+                    </div>
+                  )}
                   {/* Current price row */}
                   <div className="flex items-center justify-between p-3 rounded-xl mb-3"
                     style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
                     <div>
-                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>参考价格</span>
-                      {liveQuotes[sellPos.symbol]?.isRealtime && (
+                      <span className="text-[13px]" style={{ color: "#94A3B8" }}>
+                        {sellBid1 && sellBid1 > 0 ? "买一价（成交参考）" : "参考价格"}
+                      </span>
+                      {!sellBid1 && liveQuotes[sellPos.symbol]?.isRealtime && (
                         <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
                           style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                       )}
@@ -685,13 +784,15 @@ function SimTradingContent() {
               <div className="flex-shrink-0 px-5 pt-3"
                 style={{ borderTop: "1px solid #1a2f50", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 1.5rem))" }}>
                 <button onClick={executeSell}
-                  disabled={validSellQty <= 0}
+                  disabled={validSellQty <= 0 || sellBlocked}
                   className="w-full py-4 rounded-2xl font-black text-[15px] active:opacity-85"
                   style={{
-                    background: validSellQty > 0 ? "linear-gradient(135deg, #EF4444, #dc2626)" : "#1a2f50",
-                    color: validSellQty > 0 ? "#F8FAFC" : "#64748B",
+                    background: (validSellQty > 0 && !sellBlocked) ? "linear-gradient(135deg, #EF4444, #dc2626)" : "#1a2f50",
+                    color: (validSellQty > 0 && !sellBlocked) ? "#F8FAFC" : "#64748B",
                   }}>
-                  确认卖出 {validSellQty} 股 · 到账约 ¥{sellProceeds.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {sellBlocked
+                    ? sellBlockedMsg || "卖出受限"
+                    : `确认卖出 ${validSellQty} 股 · 到账约 ¥${sellProceeds.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                 </button>
               </div>
             )}
@@ -753,11 +854,44 @@ function SimTradingContent() {
                         <ChevronRight size={14} color="#00E5A8" />
                       </div>
                     </button>
+                    {/* 盘口买一/卖一参考 */}
+                    {buyOrderBook && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                        style={{ background: "rgba(0,229,168,0.05)", border: "1px solid rgba(0,229,168,0.15)" }}>
+                        <BookOpen size={11} color="#00E5A8" className="flex-shrink-0" />
+                        <span className="text-[10px]" style={{ color: "#00E5A8" }}>盘口</span>
+                        <span className="text-[10px] flex-1" style={{ color: "#64748B" }}>
+                          卖一 <span className="font-bold num" style={{ color: "#22C55E" }}>
+                            {buyOrderBook.ask1Price?.toFixed(2) ?? "--"}
+                          </span>
+                          <span className="mx-2">·</span>
+                          买一 <span className="font-bold num" style={{ color: "#EF4444" }}>
+                            {buyOrderBook.bid1Price?.toFixed(2) ?? "--"}
+                          </span>
+                        </span>
+                        <span className="text-[9px] px-1 py-0.5 rounded"
+                          style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>
+                          {buyOrderBook.isLimitUp ? "涨停" : buyOrderBook.isSuspended ? "停牌" : "实时"}
+                        </span>
+                      </div>
+                    )}
+                    {!buyOrderBook && buyTradeType === "BUY" && /^\d{6}$/.test(selectedStock.symbol) && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl"
+                        style={{ background: "rgba(100,116,139,0.08)", border: "1px solid rgba(100,116,139,0.15)" }}>
+                        <span className="text-[10px]" style={{ color: "#64748B" }}>
+                          盘口数据不可用，使用最新价模拟成交
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between p-3 rounded-xl"
                       style={{ background: "#0a1628", border: "1px solid #1a2f50" }}>
                       <div>
                         <span className="text-[13px]" style={{ color: "#94A3B8" }}>委托价格</span>
-                        {liveQuotes[selectedStock.symbol]?.isRealtime && (
+                        {buyOrderBook?.ask1Price && (
+                          <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
+                            style={{ background: "rgba(34,197,94,0.12)", color: "#22C55E" }}>卖一价</span>
+                        )}
+                        {!buyOrderBook?.ask1Price && liveQuotes[selectedStock.symbol]?.isRealtime && (
                           <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
                             style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8" }}>实时</span>
                         )}
@@ -820,13 +954,27 @@ function SimTradingContent() {
             {!buySuccess && (
               <div className="flex-shrink-0 px-5 pt-3"
                 style={{ borderTop: "1px solid #1a2f50", paddingBottom: "max(2rem, env(safe-area-inset-bottom, 2rem))" }}>
+                {buyBlocked && buyTradeType === "BUY" && (
+                  <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl"
+                    style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                    <AlertTriangle size={12} color="#EF4444" className="flex-shrink-0" />
+                    <span className="text-[11px] font-semibold" style={{ color: "#EF4444" }}>{buyBlockedMsg}</span>
+                  </div>
+                )}
                 <button onClick={handleBuyOrder}
+                  disabled={buyBlocked && buyTradeType === "BUY"}
                   className="w-full py-4 rounded-2xl font-black text-[15px] glow-green"
                   style={{
-                    background: buyTradeType === "BUY" ? "linear-gradient(135deg, #00E5A8, #00b885)" : "linear-gradient(135deg, #EF4444, #dc2626)",
-                    color: "#F8FAFC",
+                    background: (buyBlocked && buyTradeType === "BUY")
+                      ? "#1a2f50"
+                      : buyTradeType === "BUY"
+                      ? "linear-gradient(135deg, #00E5A8, #00b885)"
+                      : "linear-gradient(135deg, #EF4444, #dc2626)",
+                    color: (buyBlocked && buyTradeType === "BUY") ? "#64748B" : "#F8FAFC",
                   }}>
-                  {buyTradeType === "BUY" ? "确认模拟买入" : "确认模拟卖出"}
+                  {(buyBlocked && buyTradeType === "BUY")
+                    ? buyBlockedMsg || "买入受限"
+                    : buyTradeType === "BUY" ? "确认模拟买入" : "确认模拟卖出"}
                 </button>
               </div>
             )}
