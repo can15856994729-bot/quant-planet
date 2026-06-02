@@ -152,6 +152,67 @@ export function checkGeneralRisk(
   return { passed, riskLevel, reasons, failedReasons, details };
 }
 
+// ── BOM 策略专用：基本面风险过滤 ─────────────────────────────────────────
+
+export interface BomFundamentalData {
+  pe?:           number | null;
+  pb?:           number | null;
+  roe?:          number | null;
+  grossMargin?:  number | null;
+  netMargin?:    number | null;
+  revenueYoy?:   number | null;
+  netIncYoy?:    number | null;
+  debtRatio?:    number | null;
+  ocfRatio?:     number | null;
+  arRatio?:      number | null;
+  invRatio?:     number | null;
+  goodwillRatio?: number | null;
+}
+
+export interface BomRiskResult {
+  passed:    boolean;
+  riskLevel: "低" | "中" | "高" | "极高";
+  riskScore: number;
+  reasons:   string[];
+  warnings:  string[];
+}
+
+export function checkBomFundamentalRisk(d: BomFundamentalData): BomRiskResult {
+  const reasons:  string[] = [];
+  const warnings: string[] = [];
+  let score = 0;
+
+  if (d.pb != null && d.pb < 0)               { reasons.push("净资产为负"); score += 40; }
+  if (d.debtRatio != null && d.debtRatio > 85) { reasons.push(`负债率极高(${d.debtRatio.toFixed(0)}%)`); score += 30; }
+  else if (d.debtRatio != null && d.debtRatio > 70) { warnings.push(`负债率偏高(${d.debtRatio.toFixed(0)}%)`); score += 15; }
+  if (d.grossMargin != null && d.grossMargin < 0) { reasons.push("毛利率为负"); score += 25; }
+  if (d.revenueYoy  != null && d.revenueYoy < -30) { warnings.push(`营收大幅下滑(${d.revenueYoy.toFixed(0)}%)`); score += 15; }
+  if (d.netIncYoy   != null && d.netIncYoy  < -50) { warnings.push(`净利润大幅下降(${d.netIncYoy.toFixed(0)}%)`); score += 15; }
+  if (d.ocfRatio    != null && d.ocfRatio   < -10) { warnings.push(`经营现金流/收入偏低(${d.ocfRatio.toFixed(0)}%)`); score += 15; }
+  if (d.arRatio     != null && d.arRatio    > 80)  { warnings.push(`应收账款/营收过高(${d.arRatio.toFixed(0)}%)`); score += 10; }
+  if (d.goodwillRatio != null && d.goodwillRatio > 50) { warnings.push(`商誉/净资产过高(${d.goodwillRatio.toFixed(0)}%)`); score += 15; }
+  if (d.pe != null && d.pe > 500) { warnings.push(`PE极端偏高(${d.pe.toFixed(0)}x)`); score += 10; }
+
+  score = Math.min(100, score);
+  const hard = reasons.length > 0;
+  const riskLevel: BomRiskResult["riskLevel"] =
+    score >= 60 ? "极高" : score >= 40 ? "高" : score >= 20 ? "中" : "低";
+  return { passed: !hard && score < 60, riskLevel, riskScore: score, reasons, warnings };
+}
+
+/**
+ * 仅基于 stock_basic 字段的快速过滤（无需财务数据）
+ */
+export function bomQuickFilter(stock: {
+  name: string; listStatus?: string;
+}): { passed: boolean; reason?: string } {
+  if (stock.listStatus === "D") return { passed: false, reason: "已退市" };
+  if (stock.listStatus === "P") return { passed: false, reason: "已停牌" };
+  if (stock.name.startsWith("*ST") || stock.name.startsWith("ST")) return { passed: false, reason: "ST/*ST" };
+  if (stock.name.includes("退市")) return { passed: false, reason: "退市标的" };
+  return { passed: true };
+}
+
 /**
  * 快速过滤（仅名称 + 成交额，不需要财务数据）
  */

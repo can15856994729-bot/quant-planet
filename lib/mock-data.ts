@@ -578,6 +578,24 @@ export const MOCK_STRATEGIES: Strategy[] = [
     ],
     tags: ["A股全市场", "趋势回调", "50%回撤", "微型反转", "技术策略", "回测", "模拟盘"],
   },
+  {
+    id: "bom-supply-chain-stock-strategy",
+    name: "A股 BOM 产业链拆解选股策略",
+    description: "通过拆解产品 BOM（物料清单），分析各零部件的成本占比、技术壁垒、国产替代空间和供应链地位，筛选具备产业链价值的 A 股公司。适合中长线基本面配置，不构成投资建议。",
+    marketCondition: "全市场",
+    annualReturn: 0,
+    maxDrawdown: 0,
+    winRate: 0,
+    tradeCount: 0,
+    riskLevel: "中",
+    indicators: ["BOM成本占比", "技术壁垒", "国产替代空间", "供应链地位", "毛利率", "ROE", "营收增速"],
+    markets: ["A"],
+    params: [
+      { key: "minBomScore",   label: "最低BOM评分", defaultValue: 60, min: 30, max: 90, step: 5,  unit: "分" },
+      { key: "minCostRatio",  label: "最低成本占比", defaultValue: 10, min: 5,  max: 40, step: 5,  unit: "%" },
+    ],
+    tags: ["BOM拆解", "产业链", "国产替代", "基本面", "新能源车", "半导体", "消费电子", "长线选股"],
+  },
 ];
 
 // ─── 回测结果 ─────────────────────────────────────────────────

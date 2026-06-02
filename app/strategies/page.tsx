@@ -43,6 +43,10 @@ export default function StrategiesPage() {
       router.push("/strategies/trend-correction-mini-reversal");
       return;
     }
+    if (strategyId === "bom-supply-chain-stock-strategy") {
+      router.push("/strategies/bom-supply-chain-stock-strategy");
+      return;
+    }
     // 多因子轮动策略直接到回测页（默认模式）
     if (strategyId === "a-share-multi-factor") {
       router.push("/backtest");
