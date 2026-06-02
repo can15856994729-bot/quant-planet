@@ -217,10 +217,17 @@ export default function TrendCorrectionMiniReversalPage() {
 
   return (
     <div style={{ background: "#07111F", minHeight: "100vh" }}>
-      {/* 顶栏 */}
+      {/* 顶栏 — page-top-pt 保证不被手机状态栏遮挡 */}
       <div
-        className="flex items-center gap-3 px-4 py-3"
-        style={{ background: "#07111F", borderBottom: "1px solid #0d2040", position: "sticky", top: 0, zIndex: 10 }}
+        className="flex items-center gap-3 px-4 page-top-pt pb-3"
+        style={{
+          background:    "rgba(7,17,31,0.97)",
+          backdropFilter:"blur(12px)",
+          borderBottom:  "1px solid #1a2f50",
+          position:      "sticky",
+          top:           0,
+          zIndex:        40,
+        }}
       >
         <button onClick={() => router.back()} className="p-1">
           <ChevronLeft size={20} color="#94a3b8" />

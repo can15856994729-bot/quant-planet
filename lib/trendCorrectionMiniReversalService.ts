@@ -677,9 +677,23 @@ export interface ScanResult {
   scannedAt:   string;
 }
 
+/**
+ * scanTrendCorrectionCandidates
+ *
+ * 全市场扫描。
+ *
+ * ⚠️ 重要：单次扫描限制最多 maxStocks 只（默认 200），避免 Vercel 函数超时。
+ *   - Vercel serverless timeout = 60s（Pro）/ 10s（Hobby）
+ *   - 每只股票约需 0.5-2s（Tushare API 调用）
+ *   - 200 只 × 1s = 约 70s（超时边界），实际并发 5 = 约 40s
+ *   - 如需扫描更多股票，请分批调用或使用后台任务
+ *
+ * 扫描顺序：随机打乱股票列表，保证每次扫描覆盖不同股票
+ */
 export async function scanTrendCorrectionCandidates(
   params:      MiniReversalParams = DEFAULT_PARAMS,
-  concurrency  = 3,
+  concurrency  = 5,
+  maxStocks    = 200,
 ): Promise<ScanResult> {
   const candidates:  StockAnalysisResult[]                              = [];
   const highRisk:    Array<{ tsCode: string; name: string; reason: string }> = [];
@@ -692,28 +706,34 @@ export async function scanTrendCorrectionCandidates(
 
   // 获取股票列表
   const basicRes = await getAStockBasic("L");
-  if (!basicRes.ok) return { candidates, highRisk, dataInsuff, stats, scannedAt: new Date().toISOString() };
+  if (!basicRes.ok) {
+    return { candidates, highRisk, dataInsuff, stats, scannedAt: new Date().toISOString() };
+  }
 
-  // 过滤：排除 ST / *ST / 科创板（688前缀，可选）
-  const stockList = basicRes.records
+  // 过滤：排除 *ST / 退市
+  let stockList = basicRes.records
     .filter(r => {
       const name = String(r.name ?? "");
-      const code = String(r.ts_code ?? "");
-      // 排除退市风险名称
       if (name.includes("*ST") || name.includes("退市")) return false;
-      // 排除已退市
-      if (r.list_status === "D") return false;
-      // 排除停牌状态
-      if (r.list_status === "P") return false;
+      if (r.list_status === "D" || r.list_status === "P") return false;
       return true;
     })
     .map(r => ({ tsCode: String(r.ts_code ?? ""), name: String(r.name ?? "") }));
 
-  stats.total = stockList.length;
+  // 随机打乱，确保每次扫描覆盖不同股票
+  for (let i = stockList.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [stockList[i], stockList[j]] = [stockList[j], stockList[i]];
+  }
 
-  // 分批处理
+  // 限制扫描数量
+  const scanTotal = Math.min(stockList.length, maxStocks);
+  stockList = stockList.slice(0, scanTotal);
+  stats.total = scanTotal;
+
+  // 分批并发处理
   const processBatch = async (batch: typeof stockList) => {
-    await Promise.all(
+    await Promise.allSettled(
       batch.map(async ({ tsCode, name }) => {
         try {
           const res = await analyzeTrendCorrectionStock(tsCode, name, params);

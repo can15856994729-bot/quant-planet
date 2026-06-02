@@ -66,6 +66,7 @@ interface ScanResponse {
   stats:      ScanStats;
   scannedAt:  string;
   error?:     string;
+  message?:   string;
 }
 
 interface SavedData {
@@ -221,12 +222,104 @@ function CandidateCard({ item }: { item: StockItem }) {
 
 // ── 主组件 ────────────────────────────────────────────────────────────────
 
+// ── 错误诊断 ──────────────────────────────────────────────────────────────
+
+interface ErrorDetail {
+  title:   string;   // 一句话中文描述
+  tips:    string;   // 建议操作
+  apiPath: string;
+  method:  string;
+  status?: number;
+  raw?:    string;
+}
+
+function classifyError(e: unknown, status?: number, rawBody?: string): ErrorDetail {
+  const API_PATH = "/api/strategies/trend-correction-mini-reversal/scan";
+  const METHOD   = "POST";
+
+  const msg = e instanceof Error ? e.message : String(e ?? "");
+
+  // 网络层错误（fetch 本身 reject）
+  if (e instanceof TypeError && (
+    msg.includes("Failed to fetch") ||
+    msg.includes("NetworkError") ||
+    msg.includes("fetch") ||
+    msg.includes("network")
+  )) {
+    return {
+      title:   "网络请求失败，请检查部署状态",
+      tips:    "可能原因：Vercel 接口未部署、服务器宕机、CORS 拦截。请确认生产环境已重新部署。",
+      apiPath: API_PATH, method: METHOD, raw: msg,
+    };
+  }
+
+  // HTTP 状态码错误
+  if (status !== undefined) {
+    if (status === 404) {
+      return {
+        title:   "扫描接口不可用（404）",
+        tips:    "接口路由不存在，请检查部署是否包含最新代码。",
+        apiPath: API_PATH, method: METHOD, status,
+        raw:     rawBody ?? "404 Not Found",
+      };
+    }
+    if (status === 500) {
+      return {
+        title:   "接口服务异常（500）",
+        tips:    "服务端抛出异常，可能是 Tushare Token 未配置或数据不可用。",
+        apiPath: API_PATH, method: METHOD, status,
+        raw:     rawBody ?? "Internal Server Error",
+      };
+    }
+    if (status === 504 || status === 524) {
+      return {
+        title:   "扫描超时，请减少 maxStocks 后重试",
+        tips:    "Vercel Serverless 函数超时（最长 60 秒）。当前扫描股票数量过多。",
+        apiPath: API_PATH, method: METHOD, status,
+        raw:     rawBody ?? "Gateway Timeout",
+      };
+    }
+    if (status >= 400) {
+      return {
+        title:   `接口返回异常（HTTP ${status}）`,
+        tips:    "请检查请求参数或服务端日志。",
+        apiPath: API_PATH, method: METHOD, status,
+        raw:     rawBody ?? `HTTP ${status}`,
+      };
+    }
+  }
+
+  // Tushare 相关
+  if (msg.includes("permission") || msg.includes("权限") || (rawBody && rawBody.includes("permission"))) {
+    return {
+      title:   "Tushare 数据不可用（权限不足）",
+      tips:    "TUSHARE_TOKEN 未配置或无对应接口权限。请检查环境变量。",
+      apiPath: API_PATH, method: METHOD, raw: msg || rawBody,
+    };
+  }
+  if (msg.includes("token") || msg.includes("TUSHARE")) {
+    return {
+      title:   "Tushare 数据不可用（Token 未配置）",
+      tips:    "请在 Vercel 环境变量中设置 TUSHARE_TOKEN。",
+      apiPath: API_PATH, method: METHOD, raw: msg,
+    };
+  }
+
+  // 通用
+  return {
+    title:   "当前策略扫描失败，请稍后重试",
+    tips:    "扫描过程中发生未知错误，可尝试重新点击扫描。",
+    apiPath: API_PATH, method: METHOD, raw: msg || rawBody,
+  };
+}
+
 export default function CandidatePool({ params }: Props) {
-  const [tab,      setTab]      = useState<TabKey>("candidates");
-  const [loading,  setLoading]  = useState(false);
-  const [data,     setData]     = useState<SavedData | null>(null);
-  const [error,    setError]    = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
+  const [tab,         setTab]         = useState<TabKey>("candidates");
+  const [loading,     setLoading]     = useState(false);
+  const [data,        setData]        = useState<SavedData | null>(null);
+  const [error,       setError]       = useState<ErrorDetail | null>(null);
+  const [progress,    setProgress]    = useState("");
+  const [showDebug,   setShowDebug]   = useState(false);
 
   // 加载持久化数据
   useEffect(() => {
@@ -239,18 +332,35 @@ export default function CandidatePool({ params }: Props) {
   const runScan = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setProgress("正在请求全市场扫描…");
+    setProgress("正在请求全市场扫描（最多 200 只）…");
+
+    const API_PATH = "/api/strategies/trend-correction-mini-reversal/scan";
+    let status: number | undefined;
+    let rawBody: string | undefined;
 
     try {
-      const res = await fetch("/api/strategies/trend-correction-mini-reversal/scan", {
+      const res = await fetch(API_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ params, concurrency: 3 }),
+        body: JSON.stringify({ params, concurrency: 5 }),
       });
-      const json: ScanResponse = await res.json();
+      status = res.status;
 
-      if (!json.ok) {
-        setError(json.error ?? "扫描失败");
+      // 尝试解析 JSON
+      let json: ScanResponse;
+      try {
+        rawBody = await res.text();
+        json    = JSON.parse(rawBody) as ScanResponse;
+      } catch {
+        // 无法解析 JSON（可能是 HTML 错误页）
+        setError(classifyError(new Error("接口返回非 JSON 内容"), status, rawBody?.slice(0, 200)));
+        return;
+      }
+
+      if (!res.ok || !json.ok) {
+        const msg   = json.error ?? json.message ?? "扫描失败";
+        const detail = classifyError(new Error(msg), status, msg);
+        setError(detail);
         return;
       }
 
@@ -272,7 +382,7 @@ export default function CandidatePool({ params }: Props) {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 20)));
       } catch {}
     } catch (e) {
-      setError(e instanceof Error ? e.message : "网络错误");
+      setError(classifyError(e, status, rawBody?.slice(0, 200)));
     } finally {
       setLoading(false);
       setProgress("");
@@ -304,8 +414,40 @@ export default function CandidatePool({ params }: Props) {
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl mb-4" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)" }}>
-          <p className="text-[12px]" style={{ color: "#ef4444" }}><AlertTriangle size={12} className="inline mr-1" />{error}</p>
+        <div className="p-3 rounded-xl mb-4" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          {/* 主错误标题 */}
+          <div className="flex items-start gap-2 mb-2">
+            <AlertTriangle size={13} color="#ef4444" className="mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-[13px] font-semibold" style={{ color: "#ef4444" }}>{error.title}</p>
+              <p className="text-[11px] mt-0.5" style={{ color: "#f87171" }}>{error.tips}</p>
+            </div>
+          </div>
+          {/* 调试信息（可折叠） */}
+          <button
+            onClick={() => setShowDebug(v => !v)}
+            className="text-[10px] px-2 py-0.5 rounded"
+            style={{ background: "rgba(239,68,68,0.15)", color: "#fca5a5" }}
+          >
+            {showDebug ? "▲ 隐藏调试信息" : "▼ 显示调试信息"}
+          </button>
+          {showDebug && (
+            <div className="mt-2 p-2 rounded-lg font-mono text-[10px] space-y-0.5"
+              style={{ background: "rgba(0,0,0,0.3)", color: "#94a3b8" }}>
+              <p><span style={{ color: "#64748b" }}>API 路径：</span>{error.apiPath}</p>
+              <p><span style={{ color: "#64748b" }}>请求方法：</span>{error.method}</p>
+              {error.status !== undefined && (
+                <p><span style={{ color: "#64748b" }}>HTTP 状态：</span>
+                  <span style={{ color: error.status >= 500 ? "#f87171" : error.status >= 400 ? "#fbbf24" : "#94a3b8" }}>
+                    {error.status}
+                  </span>
+                </p>
+              )}
+              {error.raw && (
+                <p className="break-all"><span style={{ color: "#64748b" }}>错误详情：</span>{error.raw}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -357,7 +499,7 @@ export default function CandidatePool({ params }: Props) {
           <TrendingUp size={32} color="#1a2f50" className="mx-auto mb-3" />
           <p className="text-[13px]" style={{ color: "#475569" }}>点击「全市场扫描」开始扫描</p>
           <p className="text-[11px] mt-1" style={{ color: "#334155" }}>
-            将扫描 A股 5000+ 只股票，识别长期上涨 + 50%回撤 + 微型反转信号
+            随机采样 200 只 A股，识别长期上涨 + 50%回撤 + 微型反转信号
           </p>
         </div>
       )}
