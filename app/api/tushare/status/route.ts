@@ -2,16 +2,17 @@
  * GET /api/tushare/status[?refresh=1]
  *
  * 检查 Tushare Token 配置状态，并逐一测试各接口访问权限。
+ * 支持检测 5000积分 VIP 接口（income_vip / balancesheet_vip / cashflow_vip / fina_indicator_vip）。
  *
- * 设计原则：
- *   - 任何一个核心接口可用 → connected: true
- *   - trade_cal 没权限 ≠ Tushare 不可用
- *   - empty（返回0条数据）= API 可访问，但当前日期范围无数据，不等同于成功
- *   - 每个接口独立返回 "ok" | "permission_denied" | "error" | "empty"
- *   - 不暴露 Token 内容
+ * 响应包含：
+ *   - ok, tokenConfigured, connected
+ *   - estimatedPoints, level（基于可用接口推断）
+ *   - capabilities（所有接口状态）
+ *   - vipCapabilities（VIP接口状态）
+ *   - frequency（频次限制说明）
+ *   - featureSummary, statusSummary, checkedAt
  *
- * ?refresh=1  清除内存缓存，强制重新向 Tushare 发起请求
- *             用于购买积分后验证新权限
+ * ?refresh=1  清除内存缓存，强制重新检测（购买积分后使用）
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -29,16 +30,16 @@ type CapStatus = "ok" | "permission_denied" | "error" | "empty";
 interface CapResult {
   status:   CapStatus;
   error?:   string;
-  rowCount?: number;   // 实际返回行数
-  sample?:  string;   // 首条数据摘要
+  rowCount?: number;
+  sample?:  string;
 }
 
-// ── 单接口能力测试 ────────────────────────────────────────────────────
+// ── 单接口能力测试 ─────────────────────────────────────────────────────
 async function testCap(
   apiName: string,
   params:  Record<string, unknown>,
   fields:  string,
-  ttlMs:   number = 60 * 1000,  // status 检测只缓存 1 min（积分变更后快速生效）
+  ttlMs    = 60 * 1000,
 ): Promise<CapResult> {
   const result = await callTushare(apiName, params, fields, ttlMs);
 
@@ -48,147 +49,162 @@ async function testCap(
   }
 
   const rows = result.records.length;
-  if (rows === 0) {
-    return { status: "empty", rowCount: 0 };
-  }
+  if (rows === 0) return { status: "empty", rowCount: 0 };
 
   const first  = result.records[0];
-  const sample = Object.entries(first)
-    .slice(0, 3)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(" | ");
-
+  const sample = Object.entries(first).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(" | ");
   return { status: "ok", rowCount: rows, sample };
 }
 
-// ── 并行能力检测套件 ──────────────────────────────────────────────────
-async function runCapabilityChecks(): Promise<Record<string, CapResult>> {
-  // 近10天窗口（宽于5天，确保包含至少1个交易日）
+// ── 推断积分等级 ──────────────────────────────────────────────────────
+function estimatePoints(
+  caps:    Record<string, CapResult>,
+  vipCaps: Record<string, CapResult>,
+): { estimatedPoints: number; level: string; confidence: string } {
+  const vipOk = Object.values(vipCaps).some(c => c.status === "ok" || c.status === "empty");
+  const stdOk = caps.daily_basic?.status === "ok";
+  const dailyOk = caps.daily?.status === "ok";
+  const incomeOk = caps.income?.status === "ok" || caps.income?.status === "empty";
+  const basicOk = caps.stock_basic?.status === "ok";
+
+  if (vipOk)    return { estimatedPoints: 5000, level: "5000积分", confidence: "VIP接口可用，积分≥5000已确认" };
+  if (incomeOk) return { estimatedPoints: 2000, level: "2000积分+", confidence: "财报接口可用，积分约2000-5000" };
+  if (stdOk)    return { estimatedPoints: 2000, level: "2000积分+", confidence: "daily_basic可用，积分约2000+" };
+  if (dailyOk)  return { estimatedPoints: 200,  level: "200积分+", confidence: "daily可用，积分约200+" };
+  if (basicOk)  return { estimatedPoints: 120,  level: "120积分+", confidence: "stock_basic可用，积分约120+" };
+  return        { estimatedPoints: 0, level: "未知", confidence: "无可用接口" };
+}
+
+// ── 并行能力检测 ──────────────────────────────────────────────────────
+async function runChecks(): Promise<{
+  caps:    Record<string, CapResult>;
+  vipCaps: Record<string, CapResult>;
+}> {
   const start10  = daysAgoStr(10);
-  const start90  = daysAgoStr(90);   // 财务数据用近90天，确保捕获季报
+  const start90  = daysAgoStr(90);
   const end      = todayStr();
 
+  // 基础接口（并行）
   const [
-    stockBasic,
-    daily,
-    dailyBasic,
-    indexDaily,
-    tradeCal,
-    income,
-    balancesheet,
-    cashflow,
-    finaIndicator,
+    stockBasic, daily, dailyBasic, indexDaily, tradeCal,
+    income, balancesheet, cashflow, finaIndicator,
+    forecast, finaDiv,
   ] = await Promise.all([
-    // stock_basic：SSE 上市股票，只要几条验证权限即可
-    testCap("stock_basic",
-      { list_status: "L", exchange: "SSE" },
-      "ts_code,symbol,name"),
-
-    // daily：贵州茅台近10天
-    testCap("daily",
-      { ts_code: "600519.SH", start_date: start10, end_date: end },
-      "trade_date,open,high,low,close,vol"),
-
-    // daily_basic：贵州茅台近10天（完整估值/市值/交易活跃度字段）
-    testCap("daily_basic",
-      { ts_code: "600519.SH", start_date: start10, end_date: end },
-      "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm"),
-
-    // index_daily：沪深300近10天
-    testCap("index_daily",
-      { ts_code: "000300.SH", start_date: start10, end_date: end },
-      "trade_date,close,vol"),
-
-    // trade_cal：近7天
-    testCap("trade_cal",
-      { exchange: "SSE", start_date: daysAgoStr(7), end_date: end, is_open: "1" },
-      "cal_date,is_open"),
-
-    // income：贵州茅台近90天（季报周期），测试完整盈利能力字段
-    testCap("income",
-      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "ann_date,end_date,total_revenue,revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps"),
-
-    // balancesheet：贵州茅台近90天，测试完整财务安全字段
-    testCap("balancesheet",
-      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr"),
-
-    // cashflow：贵州茅台近90天，测试完整现金流质量字段
-    testCap("cashflow",
-      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" },
-      "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta"),
-
-    // fina_indicator：贵州茅台近90天，测试完整盈利能力 + 财务安全字段
-    testCap("fina_indicator",
-      { ts_code: "600519.SH", start_date: start90, end_date: end },
-      "ann_date,end_date,eps,roe,grossprofit_margin,netprofit_margin,debt_to_assets,current_ratio,quick_ratio,profit_dedt,or_yoy,netprofit_yoy"),
+    testCap("stock_basic",   { list_status: "L", exchange: "SSE" }, "ts_code,symbol,name"),
+    testCap("daily",         { ts_code: "600519.SH", start_date: start10, end_date: end }, "trade_date,open,high,low,close,vol"),
+    testCap("daily_basic",   { ts_code: "600519.SH", start_date: start10, end_date: end }, "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm"),
+    testCap("index_daily",   { ts_code: "000300.SH", start_date: start10, end_date: end }, "trade_date,close,vol"),
+    testCap("trade_cal",     { exchange: "SSE", start_date: daysAgoStr(7), end_date: end, is_open: "1" }, "cal_date,is_open"),
+    testCap("income",        { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,total_revenue,n_income"),
+    testCap("balancesheet",  { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,total_assets,total_liab"),
+    testCap("cashflow",      { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,n_cashflow_act"),
+    testCap("fina_indicator",{ ts_code: "600519.SH", start_date: start90, end_date: end }, "ann_date,end_date,roe,grossprofit_margin,netprofit_margin"),
+    testCap("forecast",      { ts_code: "600519.SH", start_date: start90, end_date: end }, "ann_date,end_date,type,p_change_min,p_change_max"),
+    testCap("fina_div",      { ts_code: "600519.SH", start_date: daysAgoStr(365), end_date: end }, "ts_code,ann_date,end_date,cash_div"),
   ]);
 
-  return {
+  const caps: Record<string, CapResult> = {
     stock_basic: stockBasic, daily, daily_basic: dailyBasic,
     index_daily: indexDaily, trade_cal: tradeCal,
     income, balancesheet, cashflow, fina_indicator: finaIndicator,
+    forecast, fina_div: finaDiv,
   };
+
+  // VIP 接口（只在基础接口 OK 时才测，节省时间）
+  const shouldTestVip = daily.status === "ok" || income.status === "ok" || income.status === "empty";
+
+  const [incomeVip, balancesheetVip, cashflowVip, finaIndicatorVip] = shouldTestVip
+    ? await Promise.all([
+        testCap("income_vip",         { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,total_revenue,n_income"),
+        testCap("balancesheet_vip",   { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,total_assets,total_liab"),
+        testCap("cashflow_vip",       { ts_code: "600519.SH", start_date: start90, end_date: end, report_type: "1" }, "ann_date,end_date,n_cashflow_act"),
+        testCap("fina_indicator_vip", { ts_code: "600519.SH", start_date: start90, end_date: end }, "ann_date,end_date,roe,grossprofit_margin"),
+      ])
+    : [
+        { status: "permission_denied" as const, error: "基础接口不可用，跳过VIP检测" },
+        { status: "permission_denied" as const, error: "基础接口不可用，跳过VIP检测" },
+        { status: "permission_denied" as const, error: "基础接口不可用，跳过VIP检测" },
+        { status: "permission_denied" as const, error: "基础接口不可用，跳过VIP检测" },
+      ];
+
+  const vipCaps: Record<string, CapResult> = {
+    income_vip: incomeVip,
+    balancesheet_vip: balancesheetVip,
+    cashflow_vip: cashflowVip,
+    fina_indicator_vip: finaIndicatorVip,
+  };
+
+  return { caps, vipCaps };
 }
 
-// ── 能力状态 → UI 文字 ────────────────────────────────────────────────
+// ── 能力状态 → 标签文字 ──────────────────────────────────────────────
 function capLabel(cap: CapResult, name: string): string {
   switch (cap.status) {
     case "ok":                return `${name} ✅ 可用（${cap.rowCount} 条）`;
     case "empty":             return `${name} ⚠️ API可达但期间无数据`;
     case "permission_denied": return `${name} ❌ 权限不足`;
-    case "error":             return `${name} ❌ 接口错误：${cap.error?.slice(0, 50)}`;
+    case "error":             return `${name} ❌ 错误：${cap.error?.slice(0, 50)}`;
   }
+}
+function finLabel(cap: CapResult, name: string): string {
+  if (cap.status === "ok")                return `${name} ✅ 可用（${cap.rowCount} 条）`;
+  if (cap.status === "empty")             return `${name} ⚠️ API可达，近90天无新季报（正常）`;
+  if (cap.status === "permission_denied") return `${name} ❌ 权限不足`;
+  return `${name} ❌ 错误：${cap.error?.slice(0, 40)}`;
 }
 
 // ── GET handler ───────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const now     = new Date().toISOString();
   const refresh = req.nextUrl.searchParams.get("refresh") === "1"
-                  || req.nextUrl.searchParams.get("refresh") === "true";
+               || req.nextUrl.searchParams.get("refresh") === "true";
 
   if (!hasTushareToken()) {
     return NextResponse.json({
-      ok:              false,
-      tokenConfigured: false,
-      connected:       false,
-      message:         "TUSHARE_TOKEN 未配置，请在 Vercel 环境变量中配置",
-      checkedAt:       now,
+      ok: false, tokenConfigured: false, connected: false,
+      estimatedPoints: 0, level: "未配置",
+      message: "TUSHARE_TOKEN 未配置，请在 Vercel 环境变量中配置",
+      checkedAt: now,
     });
   }
 
-  // 购买积分后强制清除旧缓存
   if (refresh) clearTushareCache();
 
-  // 并行检测
-  const caps = await runCapabilityChecks();
+  const { caps, vipCaps } = await runChecks();
 
-  // ── 决定整体 connected 状态 ──────────────────────────────────────
-  // 核心接口：stock_basic / daily / index_daily 任一 ok → connected
+  // 整体连通性
   const coreCaps = [caps.stock_basic, caps.daily, caps.index_daily];
   const connected = coreCaps.some(c => c.status === "ok");
 
-  // ── 推断各功能可用性 ─────────────────────────────────────────────
+  // 推断积分等级
+  const pointsInfo = estimatePoints(caps, vipCaps);
+
+  // 功能可用性
   const stockPoolOk      = caps.stock_basic.status === "ok";
   const klineOk          = caps.daily.status === "ok";
   const valuationOk      = caps.daily_basic.status === "ok";
   const indexOk          = caps.index_daily.status === "ok";
-  const tradeCalOk       = caps.trade_cal.status === "ok";
   const incomeOk         = caps.income.status === "ok" || caps.income.status === "empty";
   const balancesheetOk   = caps.balancesheet.status === "ok" || caps.balancesheet.status === "empty";
   const cashflowOk       = caps.cashflow.status === "ok" || caps.cashflow.status === "empty";
   const finaIndicatorOk  = caps.fina_indicator.status === "ok" || caps.fina_indicator.status === "empty";
   const financialsOk     = incomeOk && balancesheetOk && cashflowOk;
-  const backtestOk       = klineOk;
+  const vipIncomeOk      = vipCaps.income_vip.status === "ok" || vipCaps.income_vip.status === "empty";
+  const vipBsOk          = vipCaps.balancesheet_vip.status === "ok" || vipCaps.balancesheet_vip.status === "empty";
+  const vipCfOk          = vipCaps.cashflow_vip.status === "ok" || vipCaps.cashflow_vip.status === "empty";
+  const vipFiOk          = vipCaps.fina_indicator_vip.status === "ok" || vipCaps.fina_indicator_vip.status === "empty";
+  const hasVip           = vipIncomeOk || vipBsOk || vipCfOk || vipFiOk;
+  const batchScanSupport = stockPoolOk && klineOk && valuationOk;
 
-  // ── 状态摘要文字 ──────────────────────────────────────────────────
-  function finLabel(cap: CapResult, name: string): string {
-    if (cap.status === "ok")                return `${name} ✅ 可用（${cap.rowCount} 条）`;
-    if (cap.status === "empty")             return `${name} ⚠️ API可达，近90天无新季报（正常）`;
-    if (cap.status === "permission_denied") return `${name} ❌ 权限不足`;
-    return `${name} ❌ 错误：${cap.error?.slice(0, 40)}`;
-  }
+  // 频次限制（5000积分参考值）
+  const frequency = {
+    perMinuteLimit:  500,
+    dailyLimit:      10000,
+    batchSupported:  batchScanSupport,
+    note:            hasVip
+      ? "5000积分：每分钟约500次，VIP接口无额外限制"
+      : "标准接口：每分钟约200-500次，建议批量扫描时 batchDelay >= 800ms",
+  };
 
   const statusSummary = [
     capLabel(caps.stock_basic,    "A股股票池(stock_basic)"),
@@ -200,153 +216,45 @@ export async function GET(req: NextRequest) {
     finLabel(caps.balancesheet,   "资产负债表(balancesheet)"),
     finLabel(caps.cashflow,       "现金流量表(cashflow)"),
     finLabel(caps.fina_indicator, "财务指标(fina_indicator)"),
+    finLabel(caps.forecast,       "业绩预告(forecast)"),
+    finLabel(caps.fina_div,       "分红数据(fina_div)"),
+    // VIP
+    finLabel(vipCaps.income_vip,         "VIP利润表(income_vip)"),
+    finLabel(vipCaps.balancesheet_vip,   "VIP资产负债表(balancesheet_vip)"),
+    finLabel(vipCaps.cashflow_vip,       "VIP现金流量表(cashflow_vip)"),
+    finLabel(vipCaps.fina_indicator_vip, "VIP财务指标(fina_indicator_vip)"),
   ];
 
-  // 盈利能力接口专项说明（供盈利能力模块诊断用）
-  const profitabilityDetail = {
-    testStock:       "600519.SH（贵州茅台）",
-    income: {
-      status:     caps.income.status,
-      rowCount:   caps.income.rowCount ?? 0,
-      testedFields: "revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps",
-      available:  incomeOk,
-    },
-    fina_indicator: {
-      status:     caps.fina_indicator.status,
-      rowCount:   caps.fina_indicator.rowCount ?? 0,
-      testedFields: "eps,roe,grossprofit_margin,netprofit_margin,profit_dedt,or_yoy,netprofit_yoy",
-      available:  finaIndicatorOk,
-    },
-    profitSummaryApi: "/api/tushare/profit-summary?tsCode=600519.SH",
-    note: incomeOk && finaIndicatorOk
-      ? "利润表 + 财务指标均可用，盈利能力模块正常"
-      : incomeOk
-      ? "利润表可用，但财务指标不可用（毛利率/净利率/扣非/YoY 数据可能缺失）"
-      : "利润表不可用，盈利能力模块将显示权限不足提示",
-  };
-
-  // 财务安全接口专项说明（供财务安全模块诊断用）
-  const financialSafetyDetail = {
-    testStock: "600519.SH（贵州茅台）",
-    balancesheet: {
-      status:       caps.balancesheet.status,
-      rowCount:     caps.balancesheet.rowCount ?? 0,
-      testedFields: "total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr",
-      available:    balancesheetOk,
-    },
-    fina_indicator: {
-      status:       caps.fina_indicator.status,
-      rowCount:     caps.fina_indicator.rowCount ?? 0,
-      testedFields: "debt_to_assets,current_ratio,quick_ratio",
-      available:    finaIndicatorOk,
-    },
-    income: {
-      status:       caps.income.status,
-      rowCount:     caps.income.rowCount ?? 0,
-      testedFields: "revenue（用于计算应收占比/存货占比）",
-      available:    incomeOk,
-    },
-    financialSafetyApi: "/api/tushare/financial-safety?tsCode=600519.SH",
-    note: balancesheetOk
-      ? finaIndicatorOk
-        ? "资产负债表 + 财务指标均可用，财务安全模块正常"
-        : "资产负债表可用，但 fina_indicator 不可用（流动/速动比率将降级为自行计算）"
-      : "资产负债表不可用，财务安全模块将显示权限不足提示",
-  };
-
-  // 估值与市值接口专项说明（供估值模块诊断用）
-  const valuationDetail = {
-    testStock: "600519.SH（贵州茅台）",
-    daily_basic: {
-      status:       caps.daily_basic.status,
-      rowCount:     caps.daily_basic.rowCount ?? 0,
-      testedFields: "trade_date,pe,pe_ttm,pb,ps,ps_ttm,total_mv,circ_mv,turnover_rate,turnover_rate_f,volume_ratio,dv_ratio,dv_ttm",
-      available:    valuationOk,
-    },
-    fina_indicator: {
-      status:       caps.fina_indicator.status,
-      rowCount:     caps.fina_indicator.rowCount ?? 0,
-      testedFields: "netprofit_yoy（用于计算 PEG = PE TTM / 净利润增长率）",
-      available:    finaIndicatorOk,
-    },
-    valuationApi:        "/api/stocks/600519/valuation",
-    valuationHistoryApi: "/api/stocks/600519/valuation/history",
-    valuationPercentileApi: "/api/stocks/600519/valuation/percentile",
-    unitNote: "total_mv / circ_mv：Tushare 返回万元，API 自动 ×10000 转换为元，前端显示亿",
-    note: valuationOk
-      ? finaIndicatorOk
-        ? "daily_basic + fina_indicator 均可用，估值模块正常（含 PE/PB 历史分位、PEG、市值、换手率、量比）"
-        : "daily_basic 可用，但 fina_indicator 不可用（PEG 将显示为不可计算）"
-      : "daily_basic 不可用，估值模块将显示权限不足提示",
-  };
-
-  // 现金流质量接口专项说明（供现金流质量模块诊断用）
-  const cashflowQualityDetail = {
-    testStock: "600519.SH（贵州茅台）",
-    cashflow: {
-      status:       caps.cashflow.status,
-      rowCount:     caps.cashflow.rowCount ?? 0,
-      testedFields: "n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta",
-      available:    cashflowOk,
-    },
-    income: {
-      status:       caps.income.status,
-      rowCount:     caps.income.rowCount ?? 0,
-      testedFields: "n_income,n_income_attr_p,revenue（用于计算经营现金流/净利润及销售回款率）",
-      available:    incomeOk,
-    },
-    cashflowSummaryApi:  "/api/tushare/cashflow-summary?tsCode=600519.SH",
-    cashflowQualityApi:  "/api/tushare/cashflow-quality?tsCode=600519.SH",
-    note: cashflowOk
-      ? incomeOk
-        ? "现金流量表 + 利润表均可用，现金流质量模块正常（含经营现金流/净利润计算）"
-        : "现金流量表可用，但利润表不可用（经营现金流/净利润比率将显示数据暂缺）"
-      : "现金流量表不可用，现金流质量模块将显示权限不足提示",
-  };
-
-  // ── 功能可用性说明 ────────────────────────────────────────────────
   const featureSummary = {
-    stock_pool:       stockPoolOk     ? "✅ 沪深北全量股票池（Tushare）"      : "⚠️ 降级为东方财富+本地股票池",
-    historical_kline: klineOk         ? "✅ 历史K线（Tushare前复权）"          : "⚠️ 降级为东方财富K线",
-    valuation:        valuationOk     ? "✅ PE/PB/市值/换手率（Tushare）"      : "⚠️ 降级为东方财富实时报价PE/PB",
-    market_timing:    indexOk         ? "✅ 指数日线择时（Tushare）"            : "⚠️ 降级为东方财富指数K线",
-    trade_cal:        tradeCalOk      ? "✅ 交易日历"                           : "⚠️ 降级为K线日期推导",
-    backtest:         backtestOk      ? "✅ 真实历史回测可用"                   : "❌ Tushare daily 权限不足，回测锁定",
-    fundamentals:     financialsOk    ? "✅ 财报三表+财务指标可用（股票详情页）" : incomeOk ? "⚠️ 部分财报数据可用" : "❌ 财务数据权限不足",
-    fina_indicator:   finaIndicatorOk ? "✅ ROE/毛利率/资负率/流速比可用"        : "❌ 财务指标权限不足（fina_indicator）",
-    financial_safety: balancesheetOk  ? "✅ 财务安全模块可用（资负率/流动比/速动比/商誉/应收/存货）" : "❌ 资产负债表权限不足（balancesheet），财务安全模块不可用",
-    cashflow_quality: cashflowOk      ? "✅ 现金流质量模块可用（三大现金流/FCF/经营CF÷净利润/销售回款）" : "❌ 现金流量表权限不足（cashflow），现金流质量模块不可用",
-    valuation_market_cap: valuationOk ? "✅ 估值与市值模块可用（PE/PB/PS/PEG/市值/换手率/量比/历史分位）" : "❌ daily_basic 权限不足，估值模块不可用",
-    financial_trends: (incomeOk && finaIndicatorOk && cashflowOk && balancesheetOk)
-      ? "✅ 财报趋势模块可用（营收/净利润/扣非/ROE/毛利率/经营CF/资负率 近4期趋势）"
-      : incomeOk
-      ? "⚠️ 财报趋势模块部分可用（部分字段来源暂缺，已启用降级逻辑）"
-      : "❌ income 权限不足，财报趋势模块不可用",
-    fundamental_score: (incomeOk && finaIndicatorOk && cashflowOk && balancesheetOk && valuationOk)
-      ? "✅ 基本面综合评分可用（5维度：盈利/成长/现金流/财务安全/估值，0-100分）"
-      : (incomeOk && finaIndicatorOk)
-      ? "⚠️ 基本面综合评分部分可用（估值维度或现金流/安全维度数据缺失，评分降级）"
-      : "❌ 核心财报数据不可用，基本面综合评分不可用",
-    announcements: "⚠️ 公告/事件数据暂未接入（stub），后续版本接入",
-    realtime:         "✅ 始终使用东方财富实时行情（不依赖Tushare）",
-    sim_trading:      "✅ 模拟盘不依赖Tushare，始终可用",
+    stock_pool:         stockPoolOk     ? "✅ A股全量股票池" : "❌ 权限不足",
+    historical_kline:   klineOk         ? "✅ 历史K线（全市场扫描可用）" : "❌ K线权限不足",
+    daily_basic_bulk:   valuationOk     ? "✅ 按日期批量获取全市场估值/成交（scan预筛关键）" : "❌ daily_basic权限不足",
+    full_market_scan:   batchScanSupport ? `✅ 支持全市场扫描（${pointsInfo.level}，每批10只）` : "⚠️ 部分接口缺失，扫描功能受限",
+    financial_reports:  financialsOk    ? "✅ 财报三表可用" : incomeOk ? "⚠️ 部分财报可用" : "❌ 财报权限不足",
+    vip_financial:      hasVip          ? "✅ VIP财报接口可用（5000积分特权）" : "❌ VIP接口不可用（需5000积分）",
+    forecast:           (caps.forecast.status === "ok" || caps.forecast.status === "empty") ? "✅ 业绩预告可用" : "❌ 业绩预告不可用",
+    dividend:           (caps.fina_div.status === "ok" || caps.fina_div.status === "empty") ? "✅ 分红数据可用" : "❌ 分红数据不可用",
+    backtest:           klineOk         ? "✅ 历史回测可用" : "❌ K线不可用，回测锁定",
+    valuation:          valuationOk     ? "✅ PE/PB/市值/换手率可用" : "❌ 估值数据不可用",
+    realtime:           "✅ 东方财富实时行情（不依赖Tushare）",
   };
 
-  const hasPermIssues = Object.values(caps).some(c => c.status === "permission_denied");
   const message = !connected
-    ? "Tushare Token 有效，但核心接口均无权限（daily/stock_basic/index_daily）。请检查积分是否已到账（通常需5-30分钟生效）。"
-    : hasPermIssues
-    ? "Tushare 已连接，部分接口权限不足"
-    : "Tushare 已连接，所有接口正常";
+    ? "Tushare Token 有效，但核心接口均无权限。请检查积分是否到账（5-30分钟生效）。"
+    : hasVip
+    ? `Tushare 已连接 · ${pointsInfo.level} · VIP接口可用 · 支持全市场扫描`
+    : financialsOk
+    ? `Tushare 已连接 · ${pointsInfo.level} · 财报可用 · 支持全市场扫描`
+    : `Tushare 已连接 · ${pointsInfo.level}`;
 
-  // capabilities 简化版（不含 sample，供前端消费）
+  // capabilities 简化版
   const capabilities: Record<string, { status: CapStatus; rowCount?: number; error?: string }> = {};
   for (const [k, v] of Object.entries(caps)) {
-    capabilities[k] = {
-      status:   v.status,
-      rowCount: v.rowCount,
-      ...(v.error ? { error: v.error } : {}),
-    };
+    capabilities[k] = { status: v.status, rowCount: v.rowCount, ...(v.error ? { error: v.error } : {}) };
+  }
+  const vipCapabilities: Record<string, { status: CapStatus; rowCount?: number; error?: string }> = {};
+  for (const [k, v] of Object.entries(vipCaps)) {
+    vipCapabilities[k] = { status: v.status, rowCount: v.rowCount, ...(v.error ? { error: v.error } : {}) };
   }
 
   return NextResponse.json({
@@ -354,26 +262,33 @@ export async function GET(req: NextRequest) {
     tokenConfigured: true,
     connected,
     refreshed:       refresh,
+    // 积分等级
+    estimatedPoints: pointsInfo.estimatedPoints,
+    points:          pointsInfo.estimatedPoints,
+    level:           pointsInfo.level,
+    pointsConfidence: pointsInfo.confidence,
+    // 功能状态
     message,
     capabilities,
+    vipCapabilities,
     featureSummary,
     statusSummary,
-    profitabilityDetail,
-    financialSafetyDetail,
-    cashflowQualityDetail,
-    valuationDetail,
-    financialTrendsApis: [
-      "/api/tushare/financial-trends?tsCode=600519.SH",
-      "/api/stocks/600519/financials/trends",
-    ],
-    fundamentalScoreApis: [
-      "/api/tushare/fundamental-score?tsCode=600519.SH",
-      "/api/stocks/600519/fundamental-score",
-      "/api/stocks/600519/st-fundamental-risk",
-      "/api/stocks/600519/announcements",
-    ],
+    frequency,
+    // 扫描相关
+    scanSupport: {
+      fullMarketScan:    batchScanSupport,
+      stockCount:        stockPoolOk ? "5000+" : "未知",
+      recommendedBatch:  10,
+      recommendedDelay:  800,
+      preFilterSupport:  valuationOk,
+      preFilterDesc:     valuationOk
+        ? "✅ 可用 daily_basic 按日期批量预筛，将全市场5000+只压缩至约2000只高流动性股票"
+        : "❌ daily_basic不可用，无法做批量预筛",
+    },
     hint: !connected
       ? "购买积分后请访问 /api/tushare/status?refresh=1 清除旧缓存重新检测"
+      : refresh
+      ? "已强制刷新缓存，当前为最新权限状态"
       : undefined,
     checkedAt: now,
   });

@@ -488,6 +488,120 @@ export async function getFinaDividend(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// 14. 按交易日批量拉取 daily_basic（全市场）— 5000积分+ 高效预筛
+//     trade_date 参数 → 返回该日所有股票的市值/换手率/成交额等
+//     单次 API 调用替代 5000 次单股调用，节省 ~99% 请求次数
+//     缓存：6h（交易日数据盘后稳定）
+// ─────────────────────────────────────────────────────────────────────
+export async function getDailyBasicByDate(tradeDate: string): Promise<TushareResult> {
+  return callTushare(
+    "daily_basic",
+    { trade_date: tradeDate },
+    "ts_code,close,turnover_rate,volume_ratio,amount,total_mv,circ_mv,pe,pb,float_share",
+    6 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 15. 按交易日批量拉取 daily K线（全市场）
+//     trade_date 参数 → 返回该日所有股票 K 线
+//     缓存：6h
+// ─────────────────────────────────────────────────────────────────────
+export async function getDailyByDate(tradeDate: string): Promise<TushareResult> {
+  return callTushare(
+    "daily",
+    { trade_date: tradeDate },
+    "ts_code,open,high,low,close,vol,amount,pct_chg,pre_close",
+    6 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 16. VIP 利润表 — income_vip（5000积分+，不限条数/速率更高）
+//     缓存：7d
+// ─────────────────────────────────────────────────────────────────────
+export async function getIncomeVip(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "income_vip",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    "ann_date,end_date,total_revenue,revenue,oper_cost,operate_profit,total_profit,n_income,n_income_attr_p,basic_eps,admin_exp,sell_exp,fin_exp,rd_exp",
+    7 * 24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 17. VIP 资产负债表 — balancesheet_vip（5000积分+）
+//     缓存：7d
+// ─────────────────────────────────────────────────────────────────────
+export async function getBalanceSheetVip(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "balancesheet_vip",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    "ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,money_cap,total_cur_assets,total_cur_liab,accounts_receiv,inventories,goodwill,st_borr,lt_borr",
+    7 * 24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 18. VIP 现金流量表 — cashflow_vip（5000积分+）
+//     缓存：7d
+// ─────────────────────────────────────────────────────────────────────
+export async function getCashflowVip(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "cashflow_vip",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate, report_type: "1" },
+    "ann_date,end_date,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,free_cashflow,n_incr_cash_cash_equ,c_fr_sale_sg,c_paid_goods_s,c_pay_dist_dpcp_int_exp,c_pay_acq_const_fiolta",
+    7 * 24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 19. VIP 财务指标 — fina_indicator_vip（5000积分+）
+//     缓存：7d
+// ─────────────────────────────────────────────────────────────────────
+export async function getFinancialIndicatorVip(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "fina_indicator_vip",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    "ann_date,end_date,eps,bps,roe,netprofit_margin,grossprofit_margin,debt_to_assets,current_ratio,quick_ratio,assets_turn,profit_dedt,or_yoy,netprofit_yoy",
+    7 * 24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 工具：寻找最近交易日（向前最多搜索 N 天）
+//   用法：配合 getDailyBasicByDate 做全市场预筛
+// ─────────────────────────────────────────────────────────────────────
+export async function getLatestTradingDayDailyBasic(
+  maxLookbackDays = 7,
+): Promise<{ ok: true; tradeDate: string; records: TushareRecord[] } | { ok: false; error: string }> {
+  for (let i = 0; i <= maxLookbackDays; i++) {
+    const date = daysAgoStr(i);
+    const res  = await getDailyBasicByDate(date);
+    if (res.ok && res.records.length > 50) {   // >50 条才算有效数据
+      return { ok: true, tradeDate: date, records: res.records };
+    }
+  }
+  return { ok: false, error: `过去 ${maxLookbackDays} 天均无有效 daily_basic 数据` };
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // 14. 股东增减持 — stk_holdertrade
 //     缓存：24h
 //     字段：ann_date,holder_name,hold_amount,vol,ratio,

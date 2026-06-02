@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Bell, Moon, Globe, Database, Trash2, Info,
-  ChevronRight, Shield, RefreshCw,
+  ChevronRight, Shield, RefreshCw, Activity,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { toast } from "@/lib/toast";
@@ -73,10 +73,15 @@ export default function SettingsPage() {
       title: "数据与存储",
       items: [
         {
+          icon: Activity, label: "Tushare 数据中心",
+          desc: "查看积分等级、接口权限、VIP状态",
+          kind: "link", href: "/tushare",
+        },
+        {
           icon: Database, label: "数据源信息",
-          desc: "查看当前数据来源",
+          desc: "Tushare（A股）+ 东方财富（实时）",
           kind: "action",
-          onPress: () => toast("数据源：Tushare（A股）+ Sina（实时）+ 模拟数据", "info", 4000),
+          onPress: () => toast("数据源：Tushare（A股历史/财务）+ 东方财富（实时行情）", "info", 4000),
         },
         {
           icon: Trash2, label: "清除缓存",
