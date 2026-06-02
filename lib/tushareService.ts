@@ -85,6 +85,14 @@ export async function callTushare(
   params:  Record<string, unknown>,
   fields:  string,
   ttlMs:   number = 6 * 60 * 60 * 1000,  // 6h default
+  opts?: {
+    /** Tushare HTTP API 顶层 limit（默认200，stock_basic 等静态数据传 10000） */
+    limit?:  number;
+    /** Tushare HTTP API 顶层 offset（分页起始，默认0） */
+    offset?: number;
+    /** 是否跳过内存缓存（强制刷新） */
+    noCache?: boolean;
+  },
 ): Promise<TushareResult> {
 
   const token = process.env.TUSHARE_TOKEN;
@@ -92,19 +100,26 @@ export async function callTushare(
     return { ok: false, error: "TUSHARE_TOKEN 未配置，无法调用 Tushare 接口", tokenMissing: true };
   }
 
-  // Cache key (excludes token for security)
-  const cacheKey = `${apiName}::${JSON.stringify(params)}::${fields}`;
-  const cached   = _getCached(cacheKey);
-  if (cached) return { ok: true, records: cached, fromCache: true };
+  // Cache key includes limit/offset to avoid mixing paginated results
+  const cacheKey = `${apiName}::${JSON.stringify(params)}::${fields}::limit${opts?.limit ?? ""}`;
+  if (!opts?.noCache) {
+    const cached = _getCached(cacheKey);
+    if (cached) return { ok: true, records: cached, fromCache: true };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  // Build request body — include limit/offset at top level if specified
+  const reqBody: Record<string, unknown> = { api_name: apiName, token, params, fields };
+  if (opts?.limit  !== undefined) reqBody.limit  = opts.limit;
+  if (opts?.offset !== undefined) reqBody.offset = opts.offset;
 
   try {
     const res = await fetch(TUSHARE_API, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ api_name: apiName, token, params, fields }),
+      body:    JSON.stringify(reqBody),
       signal:  controller.signal,
     });
     clearTimeout(timer);
@@ -139,7 +154,7 @@ export async function callTushare(
     if (!json.data) return { ok: false, error: "Tushare 返回空数据" };
 
     const records = itemsToRecords(json.data.fields, json.data.items);
-    _setCached(cacheKey, records, ttlMs);
+    if (!opts?.noCache) _setCached(cacheKey, records, ttlMs);
     return { ok: true, records };
 
   } catch (e: unknown) {
@@ -164,15 +179,62 @@ export function todayStr(): string {
 
 // ─────────────────────────────────────────────────────────────────────
 // 1. A股基本信息 — stock_basic
-//    缓存：24h
+//    缓存：1h（设短些以便积分升级后能快速刷新到完整数据）
+//
+//    注意：Tushare HTTP API 默认每次最多返回 200 条记录，
+//    必须显式传 limit=10000（顶层参数）才能一次拿到全部 5000+ 只股票。
+//    stock_basic 总数约 5300 只，10000 够用。
 // ─────────────────────────────────────────────────────────────────────
 export async function getAStockBasic(listStatus: "L" | "D" | "P" = "L"): Promise<TushareResult> {
   return callTushare(
     "stock_basic",
     { list_status: listStatus, exchange: "" },
     "ts_code,symbol,name,area,industry,market,exchange,list_date,list_status",
-    24 * 60 * 60 * 1000,
+    60 * 60 * 1000,   // 1h TTL（而非 24h，防止积分变更后缓存返回旧的有限结果）
+    { limit: 10000 }, // 必须，否则 Tushare HTTP API 默认只返回 200 条
   );
+}
+
+/**
+ * 获取全量 A股上市股票（带分页兜底）。
+ * 正常情况下 limit=10000 单次即可拿到全部。
+ * 如果返回量 < 3000，尝试翻页补齐（防御性兜底）。
+ */
+export async function getAStockBasicAll(): Promise<TushareResult> {
+  const fields = "ts_code,symbol,name,area,industry,market,exchange,list_date,list_status";
+  const LIMIT  = 5000;
+
+  const first = await callTushare(
+    "stock_basic",
+    { list_status: "L", exchange: "" },
+    fields,
+    60 * 60 * 1000,
+    { limit: LIMIT, offset: 0 },
+  );
+  if (!first.ok) return first;
+
+  // 如果一次就拿够了（正常情况），直接返回
+  if (first.records.length < LIMIT) return first;
+
+  // 极少情况：数量正好等于 LIMIT → 可能还有更多，继续翻页
+  const allRecords = [...first.records];
+  let offset = LIMIT;
+
+  for (let page = 1; page < 5; page++) {
+    const next = await callTushare(
+      "stock_basic",
+      { list_status: "L", exchange: "" },
+      fields,
+      60 * 60 * 1000,
+      { limit: LIMIT, offset },
+    );
+    if (!next.ok || next.records.length === 0) break;
+    allRecords.push(...next.records);
+    if (next.records.length < LIMIT) break;
+    offset += LIMIT;
+  }
+
+  return { ok: true, records: allRecords };
 }
 
 // ─────────────────────────────────────────────────────────────────────

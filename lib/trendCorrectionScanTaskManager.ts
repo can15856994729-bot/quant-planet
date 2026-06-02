@@ -20,6 +20,10 @@
  *    UI 组件通过 subscribe() 订阅状态变化，卸载时退订。
  *    任务管理器独立运行，不依赖 React 组件生命周期。
  *
+ * 5. 扫描模式
+ *    full_market  : 默认，扫描全部 A股（5000+ 只）
+ *    quick_test   : 测试用，随机抽取 200 只
+ *
  * 降级说明（Capacitor WebView 限制）：
  * ─────────────────────────────────────────────────────────────────
  * - App 在前台时：扫描持续进行
@@ -32,15 +36,16 @@ import type { MiniReversalParams } from "./trendCorrectionMiniReversalService";
 
 // ── 存储键 ────────────────────────────────────────────────────────────────
 
-export const SCAN_TASK_KEY   = "quantplanet_trend_correction_mini_reversal_scan_task_v1";
-export const CANDIDATES_KEY  = "quantplanet_trend_correction_mini_reversal_candidates_v1";
-export const HIGH_RISK_KEY   = "quantplanet_trend_correction_mini_reversal_high_risk_v1";
+export const SCAN_TASK_KEY    = "quantplanet_trend_correction_mini_reversal_scan_task_v1";
+export const CANDIDATES_KEY   = "quantplanet_trend_correction_mini_reversal_candidates_v1";
+export const HIGH_RISK_KEY    = "quantplanet_trend_correction_mini_reversal_high_risk_v1";
 export const INSUFFICIENT_KEY = "quantplanet_trend_correction_mini_reversal_insufficient_v1";
-export const HISTORY_KEY     = "quantplanet_trend_correction_mini_reversal_scan_history_v1";
+export const HISTORY_KEY      = "quantplanet_trend_correction_mini_reversal_scan_history_v1";
 
 // ── 公共类型 ──────────────────────────────────────────────────────────────
 
 export type ScanStatus = "idle" | "running" | "paused" | "completed" | "failed";
+export type ScanMode   = "full_market" | "quick_test";
 
 export interface StockRef { tsCode: string; name: string }
 
@@ -101,7 +106,9 @@ export interface ScanTaskState {
   taskId:                string;
   strategyId:            "trend-correction-mini-reversal";
   status:                ScanStatus;
+  scanMode:              ScanMode;
   totalCount:            number;
+  totalAStockCount:      number;    // 原始 A股总数（未经 quickTest 截断）
   scannedCount:          number;
   progressPercent:       number;
   currentSymbol:         string;
@@ -145,14 +152,14 @@ interface BatchAnalysis {
 }
 
 interface BatchResult {
-  tsCode:            string;
-  name:              string;
-  status:            "candidate" | "high_risk" | "insufficient" | "no_signal" | "error";
-  reason?:           string;
-  analysis?:         BatchAnalysis;
-  uptrendDetected?:  boolean;
+  tsCode:              string;
+  name:                string;
+  status:              "candidate" | "high_risk" | "insufficient" | "no_signal" | "error";
+  reason?:             string;
+  analysis?:           BatchAnalysis;
+  uptrendDetected?:    boolean;
   retracementMatched?: boolean;
-  miniReversalOk?:   boolean;
+  miniReversalOk?:     boolean;
 }
 
 type TaskListener = (state: ScanTaskState | null) => void;
@@ -214,6 +221,9 @@ class TrendCorrectionScanTaskManager {
     if (saved) {
       // App 被杀掉时 status 可能仍是 "running" → 改为 "paused"
       if (saved.status === "running") saved.status = "paused";
+      // 兼容旧版数据：确保新字段有默认值
+      if (!saved.scanMode) saved.scanMode = "full_market";
+      if (saved.totalAStockCount === undefined) saved.totalAStockCount = saved.totalCount;
       this.state = saved;
     }
   }
@@ -229,23 +239,45 @@ class TrendCorrectionScanTaskManager {
   getCandidates(): CandidateItem[] { return lsGet<CandidateItem[]>(CANDIDATES_KEY, []); }
   getHighRisk(): ExcludedItem[] { return lsGet<ExcludedItem[]>(HIGH_RISK_KEY, []); }
   getInsufficient(): ExcludedItem[] { return lsGet<ExcludedItem[]>(INSUFFICIENT_KEY, []); }
-  getHistory(): Array<{ scannedAt: string; stats: { total: number; scannedCount: number; candidates: number } }> {
+  getHistory(): Array<{ scannedAt: string; stats: { total: number; scannedCount: number; candidates: number }; scanMode?: ScanMode }> {
     return lsGet(HISTORY_KEY, []);
+  }
+
+  /**
+   * 检测旧任务是否"陈旧"：任务已完成但 totalCount 很小（可能是旧版 200 只限制）。
+   * 返回 true 时建议 UI 提示用户重新扫描。
+   */
+  isStaleTask(): boolean {
+    if (!this.state) return false;
+    const s = this.state;
+    if (s.status !== "completed" && s.status !== "paused") return false;
+    // 全市场扫描但 totalCount < 1000 → 认为是旧版被限制到 200 只的结果
+    if (s.scanMode === "full_market" && s.totalCount < 1000) return true;
+    // 没有 scanMode 字段（旧版数据）且 totalCount < 1000
+    if (!s.scanMode && s.totalCount < 1000) return true;
+    return false;
   }
 
   // ── 控制：开始全新扫描 ─────────────────────────────────────────────────
 
-  async startScan(params: MiniReversalParams, batchSize = 10, batchDelayMs = 800): Promise<void> {
+  async startScan(
+    params:       MiniReversalParams,
+    scanMode:     ScanMode = "full_market",
+    batchSize     = 10,
+    batchDelayMs  = 800,
+  ): Promise<void> {
     if (this.running) return;
 
     // 1. 先获取股票列表
     this._patchState({
       status:      "running",
+      scanMode,
       totalCount:  0,
+      totalAStockCount: 0,
       scannedCount: 0,
       progressPercent: 0,
       currentSymbol: "",
-      currentName:  "正在获取 A股股票列表…",
+      currentName:  `正在获取 A股股票列表（${scanMode === "quick_test" ? "快速测试" : "全市场"}）…`,
       stockList:    [],
       scannedSymbols: [],
       candidates:   [],
@@ -259,17 +291,31 @@ class TrendCorrectionScanTaskManager {
       params, batchSize, batchDelayMs,
     });
 
-    let stocks: StockRef[];
+    let stocks:          StockRef[];
+    let totalAStockCount = 0;
+
+    // 根据 scanMode 选择对应的 API 参数
+    const stocksUrl = scanMode === "quick_test"
+      ? "/api/strategies/trend-correction-mini-reversal/scan/stocks?mode=quick_test&refresh=1"
+      : "/api/strategies/trend-correction-mini-reversal/scan/stocks?mode=full_market&refresh=1";
+
     try {
-      const res  = await fetch("/api/strategies/trend-correction-mini-reversal/scan/stocks");
-      const json = await res.json() as { ok: boolean; stocks?: StockRef[]; error?: string };
+      const res  = await fetch(stocksUrl);
+      const json = await res.json() as {
+        ok: boolean;
+        stocks?: StockRef[];
+        totalAStockCount?: number;
+        scanMode?: string;
+        error?: string;
+      };
       if (!json.ok || !json.stocks?.length) {
-        this._fail(json.error ?? "无法获取 A股股票列表");
+        this._fail(json.error ?? "无法获取 A股股票列表，请检查 Tushare Token 配置");
         return;
       }
-      stocks = json.stocks;
+      stocks           = json.stocks;
+      totalAStockCount = json.totalAStockCount ?? stocks.length;
     } catch (e) {
-      this._fail(`获取股票列表失败：${String(e)}`);
+      this._fail(`获取股票列表网络失败：${String(e)}`);
       return;
     }
 
@@ -279,10 +325,11 @@ class TrendCorrectionScanTaskManager {
     lsSet(INSUFFICIENT_KEY, []);
 
     this._patchState({
-      taskId:      `scan_${Date.now()}`,
-      totalCount:  stocks.length,
-      currentName: "",
-      stockList:   stocks,
+      taskId:           `scan_${Date.now()}`,
+      totalCount:       stocks.length,
+      totalAStockCount,
+      currentName:      "",
+      stockList:        stocks,
     });
 
     await this._runLoop();
@@ -302,7 +349,6 @@ class TrendCorrectionScanTaskManager {
   pauseScan(): void {
     if (!this.running) return;
     this.stopRequested = true;
-    // _runLoop 会在当前批次结束后检测并设置 status = paused
   }
 
   // ── 控制：重置清空 ──────────────────────────────────────────────────────
@@ -325,7 +371,8 @@ class TrendCorrectionScanTaskManager {
         taskId:      `scan_${Date.now()}`,
         strategyId:  "trend-correction-mini-reversal",
         status:      "idle",
-        totalCount:       0, scannedCount:  0, progressPercent: 0,
+        scanMode:    "full_market",
+        totalCount:       0, totalAStockCount: 0, scannedCount:  0, progressPercent: 0,
         currentSymbol:    "",  currentName:   "",
         candidatesCount:  0, highRiskCount:  0, insufficientDataCount: 0, errorCount: 0,
         longTrendCount:   0, halfRetracementCount: 0, miniReversalCount: 0,
@@ -397,7 +444,6 @@ class TrendCorrectionScanTaskManager {
         }
       } catch {
         this.consecutiveErrs++;
-        // 网络错误：将本批标记为 error
         const now = new Date().toISOString();
         for (const s of batch) {
           batchResults.push({ tsCode: s.tsCode, name: s.name, status: "error", reason: "网络请求失败" });
@@ -415,7 +461,6 @@ class TrendCorrectionScanTaskManager {
       }
 
       if (!batchOk && batchResults.length === 0) {
-        // API 返回非 ok 但未抛异常：将本批标记为 error
         const now = new Date().toISOString();
         for (const s of batch) {
           if (!scannedSet.has(s.tsCode)) {
@@ -427,9 +472,8 @@ class TrendCorrectionScanTaskManager {
       // ── 处理批次结果 ──────────────────────────────────────────────
       const now = new Date().toISOString();
 
-      // 读取最新的分类列表（支持并发更新）
-      const savedCandidates  = this.getCandidates();
-      const savedHighRisk    = this.getHighRisk();
+      const savedCandidates   = this.getCandidates();
+      const savedHighRisk     = this.getHighRisk();
       const savedInsufficient = this.getInsufficient();
 
       for (const r of batchResults) {
@@ -456,19 +500,17 @@ class TrendCorrectionScanTaskManager {
             source:       "scan",
           };
 
-          // 同步到 state.candidates（用于 UI 即时显示）
           const si = this.state!.candidates.findIndex(c => c.tsCode === r.tsCode);
           if (si >= 0) this.state!.candidates[si] = item;
           else this.state!.candidates.push(item);
           this.state!.candidatesCount = this.state!.candidates.length;
 
-          // 同步到 localStorage CANDIDATES_KEY
           const ci = savedCandidates.findIndex(c => c.tsCode === r.tsCode);
           if (ci >= 0) savedCandidates[ci] = item; else savedCandidates.push(item);
 
-          if (a.uptrend?.detected)           this.state!.longTrendCount++;
-          if (a.retracement?.matched)        this.state!.halfRetracementCount++;
-          if (a.miniReversal?.miniReversal)  this.state!.miniReversalCount++;
+          if (a.uptrend?.detected)          this.state!.longTrendCount++;
+          if (a.retracement?.matched)       this.state!.halfRetracementCount++;
+          if (a.miniReversal?.miniReversal) this.state!.miniReversalCount++;
 
         } else if (r.status === "high_risk") {
           const item: ExcludedItem = { tsCode: r.tsCode, name: r.name, reason: r.reason ?? "", scannedAt: now };
@@ -485,7 +527,6 @@ class TrendCorrectionScanTaskManager {
         } else if (r.status === "no_signal") {
           if (r.uptrendDetected)    this.state!.longTrendCount++;
           if (r.retracementMatched) this.state!.halfRetracementCount++;
-          // miniReversal: 如果有反转但无买入信号，不单独计数
 
         } else if (r.status === "error") {
           this.state!.errorCount++;
@@ -499,21 +540,19 @@ class TrendCorrectionScanTaskManager {
         }
       }
 
-      // 持久化分类列表
       lsSet(CANDIDATES_KEY, savedCandidates);
       lsSet(HIGH_RISK_KEY, savedHighRisk);
       lsSet(INSUFFICIENT_KEY, savedInsufficient);
 
       // 更新进度
-      this.state!.scannedCount     = this.state!.scannedSymbols.length;
-      this.state!.progressPercent  = this.state!.totalCount > 0
+      this.state!.scannedCount    = this.state!.scannedSymbols.length;
+      this.state!.progressPercent = this.state!.totalCount > 0
         ? Math.round(this.state!.scannedCount / this.state!.totalCount * 1000) / 10
         : 0;
 
       this._saveState();
       this._notify();
 
-      // 批次间延迟
       if (idx < remaining.length && !this.stopRequested) {
         await sleep(task.batchDelayMs);
       }
@@ -525,7 +564,6 @@ class TrendCorrectionScanTaskManager {
       this.stopRequested = false;
       this._patchState({ status: "paused", currentSymbol: "", currentName: "" });
     } else {
-      // 扫描完成
       const completedAt = new Date().toISOString();
       this._patchState({
         status:         "completed",
@@ -534,10 +572,10 @@ class TrendCorrectionScanTaskManager {
         currentName:    "扫描完成",
       });
 
-      // 保存历史
       const history = this.getHistory();
       history.unshift({
         scannedAt:  completedAt,
+        scanMode:   this.state!.scanMode,
         stats: {
           total:        this.state!.totalCount,
           scannedCount: this.state!.scannedCount,

@@ -680,20 +680,21 @@ export interface ScanResult {
 /**
  * scanTrendCorrectionCandidates
  *
- * 全市场扫描。
+ * 全市场扫描（单次调用版，仅供旧版兼容 / 测试使用）。
  *
- * ⚠️ 重要：单次扫描限制最多 maxStocks 只（默认 200），避免 Vercel 函数超时。
- *   - Vercel serverless timeout = 60s（Pro）/ 10s（Hobby）
- *   - 每只股票约需 0.5-2s（Tushare API 调用）
- *   - 200 只 × 1s = 约 70s（超时边界），实际并发 5 = 约 40s
- *   - 如需扫描更多股票，请分批调用或使用后台任务
+ * ⚠️ 重要：Vercel serverless 有超时限制（60s Pro / 10s Hobby）。
+ *   全量 5000 只扫描会超时。推荐使用分批方案：
+ *     GET /scan/stocks → POST /scan/batch（前端任务管理器）
+ *
+ * maxStocks = 0 或不传 → 不限制（全量，可能超时）
+ * maxStocks > 0        → 最多扫描该数量（快速测试用）
  *
  * 扫描顺序：随机打乱股票列表，保证每次扫描覆盖不同股票
  */
 export async function scanTrendCorrectionCandidates(
   params:      MiniReversalParams = DEFAULT_PARAMS,
   concurrency  = 5,
-  maxStocks    = 200,
+  maxStocks    = 0,   // 0 = 不限制（全市场）；正整数 = 快速测试上限
 ): Promise<ScanResult> {
   const candidates:  StockAnalysisResult[]                              = [];
   const highRisk:    Array<{ tsCode: string; name: string; reason: string }> = [];
@@ -726,8 +727,8 @@ export async function scanTrendCorrectionCandidates(
     [stockList[i], stockList[j]] = [stockList[j], stockList[i]];
   }
 
-  // 限制扫描数量
-  const scanTotal = Math.min(stockList.length, maxStocks);
+  // 限制扫描数量：maxStocks=0 时不限制（全量）
+  const scanTotal = maxStocks > 0 ? Math.min(stockList.length, maxStocks) : stockList.length;
   stockList = stockList.slice(0, scanTotal);
   stats.total = scanTotal;
 

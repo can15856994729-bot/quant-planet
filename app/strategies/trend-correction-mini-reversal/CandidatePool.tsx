@@ -6,25 +6,28 @@
  * 候选池 + 全市场扫描任务管理界面
  *
  * 功能：
+ * - 扫描模式：全市场扫描（默认）/ 快速测试扫描（200只）
  * - 显示 A股总数、已扫描数量、扫描进度条
  * - 实时显示当前正在扫描的股票
  * - 状态化按钮（扫描中/暂停/完成/失败）
  * - 候选池、高风险、数据不足列表实时更新
  * - 退出页面后扫描继续（模块级任务管理器）
  * - 重新进入后恢复进度显示
+ * - 检测并警告旧版 200只 陈旧任务
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw, Pause, Play, Square, RotateCcw,
   TrendingUp, AlertTriangle, Database, Clock,
-  ChevronDown, ChevronUp, History,
+  History, Zap, Globe,
 } from "lucide-react";
 import {
   getScanTaskManager,
   type ScanTaskState,
   type CandidateItem,
   type ExcludedItem,
+  type ScanMode,
   CANDIDATES_KEY, HIGH_RISK_KEY, INSUFFICIENT_KEY, HISTORY_KEY,
 } from "@/lib/trendCorrectionScanTaskManager";
 import type { MiniReversalParams } from "@/lib/trendCorrectionMiniReversalService";
@@ -180,16 +183,35 @@ function ProgressBar({ percent }: { percent: number }) {
 
 function StatusBadge({ status }: { status: ScanTaskState["status"] }) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
-    idle:      { label: "未开始", bg: "rgba(100,116,139,0.15)", color: "#64748b" },
-    running:   { label: "扫描中", bg: "rgba(34,197,94,0.15)",   color: "#22c55e" },
-    paused:    { label: "已暂停", bg: "rgba(234,179,8,0.15)",   color: "#eab308" },
-    completed: { label: "已完成", bg: "rgba(59,130,246,0.15)",  color: "#3b82f6" },
-    failed:    { label: "扫描失败", bg: "rgba(239,68,68,0.15)", color: "#ef4444" },
+    idle:      { label: "未开始",  bg: "rgba(100,116,139,0.15)", color: "#64748b" },
+    running:   { label: "扫描中",  bg: "rgba(34,197,94,0.15)",   color: "#22c55e" },
+    paused:    { label: "已暂停",  bg: "rgba(234,179,8,0.15)",   color: "#eab308" },
+    completed: { label: "已完成",  bg: "rgba(59,130,246,0.15)",  color: "#3b82f6" },
+    failed:    { label: "扫描失败", bg: "rgba(239,68,68,0.15)",  color: "#ef4444" },
   };
   const s = map[status] ?? map.idle;
   return (
     <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
       style={{ background: s.bg, color: s.color }}>{s.label}</span>
+  );
+}
+
+// ── 扫描模式徽章 ──────────────────────────────────────────────────────────
+
+function ScanModeBadge({ scanMode }: { scanMode?: ScanMode }) {
+  if (scanMode === "quick_test") {
+    return (
+      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+        style={{ background: "rgba(234,179,8,0.15)", color: "#eab308", border: "1px solid #eab30844" }}>
+        ⚡ 快速测试扫描（200只）
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+      style={{ background: "rgba(0,229,168,0.12)", color: "#00E5A8", border: "1px solid #00E5A844" }}>
+      🌐 全市场扫描
+    </span>
   );
 }
 
@@ -200,18 +222,20 @@ type TabKey = "candidates" | "highRisk" | "dataInsuff" | "history";
 interface Props { params: MiniReversalParams }
 
 export default function CandidatePool({ params }: Props) {
-  const [task,          setTask]          = useState<ScanTaskState | null>(null);
-  const [tab,           setTab]           = useState<TabKey>("candidates");
-  const [showDebug,     setShowDebug]     = useState(false);
+  const [task,           setTask]           = useState<ScanTaskState | null>(null);
+  const [tab,            setTab]            = useState<TabKey>("candidates");
+  const [showDebug,      setShowDebug]      = useState(false);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
-  const [candidates,    setCandidates]    = useState<CandidateItem[]>([]);
-  const [highRisk,      setHighRisk]      = useState<ExcludedItem[]>([]);
-  const [insufficient,  setInsufficient]  = useState<ExcludedItem[]>([]);
-  const [history,       setHistory]       = useState<Array<{ scannedAt: string; stats: { total: number; scannedCount: number; candidates: number } }>>([]);
-  const [elapsed,       setElapsed]       = useState("");
-  const [candidatePage, setCandidatePage] = useState(0);
-  const [insuffPage,    setInsuffPage]    = useState(0);
-  const PAGE_SIZE = 50;
+  const [showStaleBanner,  setShowStaleBanner]  = useState(false);
+  const [selectedMode,   setSelectedMode]   = useState<ScanMode>("full_market");
+  const [candidates,     setCandidates]     = useState<CandidateItem[]>([]);
+  const [highRisk,       setHighRisk]       = useState<ExcludedItem[]>([]);
+  const [insufficient,   setInsufficient]   = useState<ExcludedItem[]>([]);
+  const [history,        setHistory]        = useState<Array<{ scannedAt: string; stats: { total: number; scannedCount: number; candidates: number }; scanMode?: ScanMode }>>([]);
+  const [elapsed,        setElapsed]        = useState("");
+  const [candidatePage,  setCandidatePage]  = useState(0);
+  const [insuffPage,     setInsuffPage]     = useState(0);
+  const PAGE_SIZE  = 50;
   const isFirstMount = useRef(true);
 
   // ── 订阅任务管理器 ──────────────────────────────────────────────────
@@ -223,25 +247,28 @@ export default function CandidatePool({ params }: Props) {
         setCandidates([...newTask.candidates]);
       }
     });
-    // 加载持久化的分类列表
     setCandidates(mgr.getCandidates());
     setHighRisk(mgr.getHighRisk());
     setInsufficient(mgr.getInsufficient());
     setHistory(mgr.getHistory());
 
-    // 首次挂载时检查是否有未完成任务
     if (isFirstMount.current) {
       isFirstMount.current = false;
       const s = mgr.getState();
-      if (s && (s.status === "paused" || s.status === "running")) {
+      // 检测陈旧任务（旧版 200 只限制）
+      if (s && mgr.isStaleTask()) {
+        setShowStaleBanner(true);
+      } else if (s && (s.status === "paused" || s.status === "running")) {
         setShowResumeBanner(true);
       }
+      // 恢复上次使用的扫描模式
+      if (s?.scanMode) setSelectedMode(s.scanMode);
     }
 
     return unsubscribe;
   }, []);
 
-  // ── 刷新分类列表（任务更新时） ───────────────────────────────────────
+  // ── 刷新分类列表 ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!task) return;
     const mgr = getScanTaskManager();
@@ -250,16 +277,15 @@ export default function CandidatePool({ params }: Props) {
     setHistory(mgr.getHistory());
   }, [task?.scannedCount]);
 
-  // ── 已用时间计时器 ───────────────────────────────────────────────────
+  // ── 已用时间 ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!task?.startedAt) { setElapsed(""); return; }
     if (task.status !== "running") return;
-
     const id = setInterval(() => {
-      const ms      = Date.now() - new Date(task.startedAt!).getTime();
-      const secs    = Math.floor(ms / 1000);
-      const mins    = Math.floor(secs / 60);
-      const hours   = Math.floor(mins / 60);
+      const ms   = Date.now() - new Date(task.startedAt!).getTime();
+      const secs = Math.floor(ms / 1000);
+      const mins = Math.floor(secs / 60);
+      const hours = Math.floor(mins / 60);
       if (hours > 0)  setElapsed(`${hours}h ${mins % 60}m`);
       else if (mins > 0) setElapsed(`${mins}m ${secs % 60}s`);
       else setElapsed(`${secs}s`);
@@ -267,14 +293,14 @@ export default function CandidatePool({ params }: Props) {
     return () => clearInterval(id);
   }, [task?.startedAt, task?.status]);
 
-  // ── 预计剩余时间 ─────────────────────────────────────────────────────
+  // ── 预计剩余 ─────────────────────────────────────────────────────────
   const estimatedRemaining = (() => {
     if (!task?.startedAt || task.scannedCount < 10) return null;
     const elapsedMs = Date.now() - new Date(task.startedAt).getTime();
     const rate      = task.scannedCount / (elapsedMs / 1000);
     if (rate <= 0) return null;
     const remaining = (task.totalCount - task.scannedCount) / rate;
-    if (remaining > 7200) return null; // 超过 2h 就不显示
+    if (remaining > 7200) return null;
     if (remaining > 3600) return `约 ${Math.floor(remaining / 3600)}h${Math.floor((remaining % 3600) / 60)}m`;
     if (remaining > 60)   return `约 ${Math.floor(remaining / 60)}m`;
     return `约 ${Math.floor(remaining)}s`;
@@ -284,10 +310,11 @@ export default function CandidatePool({ params }: Props) {
 
   const handleStart = useCallback(() => {
     setShowResumeBanner(false);
+    setShowStaleBanner(false);
     setCandidatePage(0);
     setInsuffPage(0);
-    getScanTaskManager().startScan(params);
-  }, [params]);
+    getScanTaskManager().startScan(params, selectedMode);
+  }, [params, selectedMode]);
 
   const handleResume = useCallback(() => {
     setShowResumeBanner(false);
@@ -300,6 +327,7 @@ export default function CandidatePool({ params }: Props) {
 
   const handleReset = useCallback(() => {
     setShowResumeBanner(false);
+    setShowStaleBanner(false);
     setCandidates([]);
     setHighRisk([]);
     setInsufficient([]);
@@ -315,11 +343,41 @@ export default function CandidatePool({ params }: Props) {
   const renderButtons = () => {
     if (status === "idle") {
       return (
-        <button onClick={handleStart}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold"
-          style={{ background: "#00E5A8", color: "#07111F" }}>
-          <RefreshCw size={14} />全市场扫描
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 模式选择 */}
+          <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
+            <button
+              onClick={() => setSelectedMode("full_market")}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+              style={{
+                background: selectedMode === "full_market" ? "#00E5A8" : "transparent",
+                color:      selectedMode === "full_market" ? "#07111F" : "#94a3b8",
+              }}
+            >
+              <Globe size={11} />全市场
+            </button>
+            <button
+              onClick={() => setSelectedMode("quick_test")}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+              style={{
+                background: selectedMode === "quick_test" ? "#eab308" : "transparent",
+                color:      selectedMode === "quick_test" ? "#07111F" : "#94a3b8",
+              }}
+            >
+              <Zap size={11} />测试200
+            </button>
+          </div>
+
+          <button onClick={handleStart}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold"
+            style={{
+              background: selectedMode === "quick_test" ? "#eab308" : "#00E5A8",
+              color: "#07111F",
+            }}>
+            <RefreshCw size={14} />
+            {selectedMode === "quick_test" ? "快速测试扫描" : "全市场扫描"}
+          </button>
+        </div>
       );
     }
     if (status === "running") {
@@ -340,7 +398,7 @@ export default function CandidatePool({ params }: Props) {
     }
     if (status === "paused") {
       return (
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={handleResume}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold"
             style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e", border: "1px solid #22c55e" }}>
@@ -361,7 +419,7 @@ export default function CandidatePool({ params }: Props) {
     }
     if (status === "completed") {
       return (
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={handleStart}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold"
             style={{ background: "#00E5A8", color: "#07111F" }}>
@@ -398,21 +456,42 @@ export default function CandidatePool({ params }: Props) {
 
   return (
     <div>
+      {/* ── 陈旧任务警告横幅（旧版 200 只限制） ── */}
+      {showStaleBanner && task && (
+        <div className="p-3 rounded-xl mb-3"
+          style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <p className="text-[12px] font-semibold mb-1" style={{ color: "#f87171" }}>
+                ⚠️ 检测到旧版扫描数据（仅 {task.totalCount} 只）
+              </p>
+              <p className="text-[11px]" style={{ color: "#94a3b8" }}>
+                当前 A股全市场应有 5000+ 只。旧版扫描被限制在 {task.totalCount} 只（已修复）。
+                建议点击「重新扫描」获取真实全市场结果。
+              </p>
+            </div>
+            <button onClick={() => setShowStaleBanner(false)}
+              className="text-[11px] flex-shrink-0" style={{ color: "#64748b" }}>✕</button>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button onClick={handleReset}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold"
+              style={{ background: "#00E5A8", color: "#07111F" }}>
+              <RotateCcw size={11} />清空并重新扫描
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── 恢复提示横幅 ── */}
-      {showResumeBanner && task && (
+      {showResumeBanner && task && !showStaleBanner && (
         <div className="p-3 rounded-xl mb-3 flex items-start justify-between gap-2"
           style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)" }}>
           <div className="flex-1">
-            {task.status === "running" || task.status === "paused" ? (
-              <p className="text-[12px]" style={{ color: "#93c5fd" }}>
-                上次扫描任务仍在进行，已为你恢复进度。
-                已扫描 {task.scannedCount} / {task.totalCount} 只，发现买入候选 {task.candidatesCount} 只。
-              </p>
-            ) : task.status === "completed" ? (
-              <p className="text-[12px]" style={{ color: "#93c5fd" }}>
-                上次全市场扫描已完成，共发现买入候选 {task.candidatesCount} 只。
-              </p>
-            ) : null}
+            <p className="text-[12px]" style={{ color: "#93c5fd" }}>
+              上次扫描任务仍在进行，已为你恢复进度。
+              已扫描 {task.scannedCount} / {task.totalCount} 只，发现买入候选 {task.candidatesCount} 只。
+            </p>
           </div>
           <button onClick={() => setShowResumeBanner(false)}
             className="text-[11px]" style={{ color: "#64748b" }}>✕</button>
@@ -434,21 +513,33 @@ export default function CandidatePool({ params }: Props) {
       {task && task.status !== "idle" && (
         <div className="p-4 rounded-2xl mb-4" style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
           {/* 标题行 */}
-          <div className="flex items-center justify-between mb-3">
-            <StatusBadge status={task.status} />
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <StatusBadge status={task.status} />
+              <ScanModeBadge scanMode={task.scanMode} />
+            </div>
             {task.startedAt && (
               <span className="text-[10px]" style={{ color: "#334155" }}>
-                开始：{task.startedAt.slice(11, 19)}
+                {task.startedAt.slice(11, 19)}
                 {elapsed && <span className="ml-1">已用 {elapsed}</span>}
               </span>
             )}
           </div>
 
-          {/* 总数显示 */}
+          {/* A股总数显示 */}
           {task.totalCount > 0 && (
-            <p className="text-[12px] mb-2" style={{ color: "#64748b" }}>
-              A股股票总数：<span style={{ color: "#e2e8f0", fontWeight: 600 }}>{task.totalCount.toLocaleString()} 只</span>
-            </p>
+            <div className="flex items-center gap-3 mb-2 text-[12px]" style={{ color: "#64748b" }}>
+              <span>
+                A股总数：<span style={{ color: "#e2e8f0", fontWeight: 600 }}>
+                  {(task.totalAStockCount || task.totalCount).toLocaleString()} 只
+                </span>
+              </span>
+              {task.scanMode === "quick_test" && (
+                <span style={{ color: "#eab308" }}>
+                  （测试抽取：{task.totalCount} 只）
+                </span>
+              )}
+            </div>
           )}
 
           {/* 进度条 */}
@@ -490,10 +581,10 @@ export default function CandidatePool({ params }: Props) {
           {/* 统计数字 */}
           <div className="grid grid-cols-4 gap-2 mb-3">
             {[
-              { label: "买入候选", value: task.candidatesCount, color: "#22c55e", icon: <TrendingUp size={11} /> },
-              { label: "高风险", value: task.highRiskCount, color: "#ef4444", icon: <AlertTriangle size={11} /> },
+              { label: "买入候选", value: task.candidatesCount,       color: "#22c55e", icon: <TrendingUp size={11} /> },
+              { label: "高风险",   value: task.highRiskCount,         color: "#ef4444", icon: <AlertTriangle size={11} /> },
               { label: "数据不足", value: task.insufficientDataCount, color: "#94a3b8", icon: <Database size={11} /> },
-              { label: "剩余", value: Math.max(0, task.totalCount - task.scannedCount), color: "#64748b", icon: <Clock size={11} /> },
+              { label: "剩余",     value: Math.max(0, task.totalCount - task.scannedCount), color: "#64748b", icon: <Clock size={11} /> },
             ].map(s => (
               <div key={s.label} className="p-2 rounded-xl text-center"
                 style={{ background: "#07111F", border: "1px solid #0d2040" }}>
@@ -509,9 +600,9 @@ export default function CandidatePool({ params }: Props) {
           {/* 趋势/回撤/反转细分 */}
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: "识别趋势", value: task.longTrendCount, color: "#3b82f6" },
-              { label: "50%区间", value: task.halfRetracementCount, color: "#f59e0b" },
-              { label: "微型反转", value: task.miniReversalCount, color: "#a78bfa" },
+              { label: "识别趋势", value: task.longTrendCount,       color: "#3b82f6" },
+              { label: "50%区间", value: task.halfRetracementCount,   color: "#f59e0b" },
+              { label: "微型反转", value: task.miniReversalCount,     color: "#a78bfa" },
             ].map(s => (
               <div key={s.label} className="p-1.5 rounded-lg text-center"
                 style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1a2f50" }}>
@@ -521,7 +612,7 @@ export default function CandidatePool({ params }: Props) {
             ))}
           </div>
 
-          {/* 失败原因 */}
+          {/* 失败/暂停原因 */}
           {(task.status === "failed" || task.status === "paused") && task.failedReason && (
             <div className="mt-3 p-2 rounded-lg" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
               <p className="text-[11px]" style={{ color: "#f87171" }}>
@@ -550,11 +641,16 @@ export default function CandidatePool({ params }: Props) {
 
       {/* ── 无任务时的空状态 ── */}
       {!task && (
-        <div className="py-10 text-center mb-4">
+        <div className="py-8 text-center mb-4">
           <TrendingUp size={32} color="#1a2f50" className="mx-auto mb-3" />
-          <p className="text-[13px]" style={{ color: "#475569" }}>点击「全市场扫描」开始</p>
+          <p className="text-[13px]" style={{ color: "#475569" }}>
+            选择扫描模式，点击按钮开始
+          </p>
           <p className="text-[11px] mt-1" style={{ color: "#334155" }}>
-            获取 A股全市场股票，分批分析长期上涨 + 50%回撤 + 微型反转信号
+            全市场扫描：获取 A股全部 5000+ 只，分批分析买入信号
+          </p>
+          <p className="text-[11px] mt-0.5" style={{ color: "#334155" }}>
+            快速测试扫描：随机抽取 200 只，仅供开发测试
           </p>
         </div>
       )}
@@ -563,10 +659,10 @@ export default function CandidatePool({ params }: Props) {
       <div className="flex gap-1.5 mb-3 overflow-x-auto no-scrollbar">
         {(
           [
-            { key: "candidates" as TabKey, label: `买入候选 ${candidates.length}`,           icon: <TrendingUp size={11} /> },
-            { key: "highRisk"   as TabKey, label: `高风险 ${task?.highRiskCount ?? highRisk.length}`, icon: <AlertTriangle size={11} /> },
+            { key: "candidates" as TabKey, label: `买入候选 ${candidates.length}`,                       icon: <TrendingUp size={11} /> },
+            { key: "highRisk"   as TabKey, label: `高风险 ${task?.highRiskCount ?? highRisk.length}`,     icon: <AlertTriangle size={11} /> },
             { key: "dataInsuff" as TabKey, label: `数据不足 ${task?.insufficientDataCount ?? insufficient.length}`, icon: <Database size={11} /> },
-            { key: "history"    as TabKey, label: `历史扫描 ${history.length}`,               icon: <History size={11} /> },
+            { key: "history"    as TabKey, label: `历史扫描 ${history.length}`,                           icon: <History size={11} /> },
           ] as const
         ).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
@@ -704,9 +800,20 @@ export default function CandidatePool({ params }: Props) {
               <div key={i} className="p-2.5 rounded-xl mb-2"
                 style={{ background: "#0d1f3c", border: "1px solid #1a2f50" }}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-medium" style={{ color: "#e2e8f0" }}>
-                    {fmtDate(h.scannedAt)} {h.scannedAt.slice(11, 16)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-medium" style={{ color: "#e2e8f0" }}>
+                      {fmtDate(h.scannedAt)} {h.scannedAt.slice(11, 16)}
+                    </span>
+                    {h.scanMode && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded"
+                        style={{
+                          background: h.scanMode === "quick_test" ? "rgba(234,179,8,0.1)" : "rgba(0,229,168,0.1)",
+                          color: h.scanMode === "quick_test" ? "#eab308" : "#00E5A8",
+                        }}>
+                        {h.scanMode === "quick_test" ? "测试" : "全市场"}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px]" style={{ color: "#22c55e" }}>候选 {h.stats.candidates}</span>
                 </div>
                 <div className="flex gap-3 text-[10px]" style={{ color: "#64748b" }}>
