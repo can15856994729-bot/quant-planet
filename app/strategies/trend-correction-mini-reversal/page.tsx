@@ -9,14 +9,39 @@
  *   1. 买入候选池（全市场扫描结果）
  *   2. 单只分析 / 历史回测
  *   3. 参数设置
+ *
+ * ⚠️ CandidatePool 和 SingleBacktest 使用 dynamic({ ssr: false })，
+ *    防止 Next.js 服务端渲染时因 localStorage / recharts 引发 500 错误。
  */
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, TrendingUp, Search, Settings, Info } from "lucide-react";
-import CandidatePool from "./CandidatePool";
-import SingleBacktest from "./SingleBacktest";
+import { ErrorBoundary } from "./ErrorBoundary";
 import type { MiniReversalParams } from "@/lib/trendCorrectionMiniReversalService";
+
+// ── 动态导入（禁止 SSR，防止服务端渲染崩溃） ─────────────────────────────────
+
+function TabLoadingFallback() {
+  return (
+    <div className="py-12 text-center">
+      <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin mx-auto mb-3"
+        style={{ borderColor: "#1a2f50", borderTopColor: "transparent" }} />
+      <p className="text-[12px]" style={{ color: "#475569" }}>加载中…</p>
+    </div>
+  );
+}
+
+const CandidatePool = dynamic(
+  () => import("./CandidatePool"),
+  { ssr: false, loading: () => <TabLoadingFallback /> },
+);
+
+const SingleBacktest = dynamic(
+  () => import("./SingleBacktest"),
+  { ssr: false, loading: () => <TabLoadingFallback /> },
+);
 
 // ── 默认参数 ──────────────────────────────────────────────────────────────
 
@@ -274,14 +299,20 @@ export default function TrendCorrectionMiniReversalPage() {
       {/* 内容 */}
       <div className="px-4 pb-8">
         {tab === "pool" && (
-          <>
+          <ErrorBoundary>
             <StrategyInfo />
             <CandidatePool params={params} />
-          </>
+          </ErrorBoundary>
         )}
-        {tab === "single" && <SingleBacktest params={params} />}
+        {tab === "single" && (
+          <ErrorBoundary>
+            <SingleBacktest params={params} />
+          </ErrorBoundary>
+        )}
         {tab === "params" && (
-          <ParamsPanel params={params} onChange={setParams} />
+          <ErrorBoundary>
+            <ParamsPanel params={params} onChange={setParams} />
+          </ErrorBoundary>
         )}
       </div>
     </div>

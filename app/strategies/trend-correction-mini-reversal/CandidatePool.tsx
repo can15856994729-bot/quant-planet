@@ -28,7 +28,6 @@ import {
   type CandidateItem,
   type ExcludedItem,
   type ScanMode,
-  CANDIDATES_KEY, HIGH_RISK_KEY, INSUFFICIENT_KEY, HISTORY_KEY,
 } from "@/lib/trendCorrectionScanTaskManager";
 import type { MiniReversalParams } from "@/lib/trendCorrectionMiniReversalService";
 
@@ -46,13 +45,6 @@ function fmtDate(d?: string | null): string {
   if (d.includes("T")) return d.slice(0, 10);
   if (d.length >= 8 && !d.includes("-")) return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
   return d;
-}
-
-function lsGet<T>(key: string, fb: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fb;
-  } catch { return fb; }
 }
 
 // ── 候选股票卡片 ───────────────────────────────────────────────────────────
