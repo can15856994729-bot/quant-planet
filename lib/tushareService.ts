@@ -431,6 +431,82 @@ export function applyAdjFactor(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// 11. 业绩预告 — forecast
+//     缓存：24h
+//     字段：ann_date,end_date,type,p_change_min,p_change_max,
+//           net_profit_min,net_profit_max,last_parent_net,summary,change_reason
+// ─────────────────────────────────────────────────────────────────────
+export async function getPerformanceForecast(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "forecast",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    "ts_code,ann_date,end_date,type,p_change_min,p_change_max,net_profit_min,net_profit_max,last_parent_net,summary,change_reason",
+    24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 12. 业绩快报 — express
+//     缓存：24h
+//     字段：ann_date,end_date,revenue,oper_profit,total_profit,
+//           n_income,total_assets,yoy_net,yoy_equity
+// ─────────────────────────────────────────────────────────────────────
+export async function getPerformanceExpress(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "express",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    "ts_code,ann_date,end_date,revenue,oper_profit,total_profit,n_income,total_assets,yoy_net,yoy_equity",
+    24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 13. 分红送股 — fina_div
+//     缓存：24h
+//     字段：end_date,ann_date,div_proc,stk_div,stk_bo_rate,
+//           cash_div,cash_div_tax,record_date,ex_date,pay_date
+// ─────────────────────────────────────────────────────────────────────
+export async function getFinaDividend(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "fina_div",
+    { ts_code: tsCode, ann_date: startDate, end_date: endDate },
+    "ts_code,end_date,ann_date,div_proc,stk_div,stk_bo_rate,cash_div,cash_div_tax,record_date,ex_date,pay_date",
+    24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 14. 股东增减持 — stk_holdertrade
+//     缓存：24h
+//     字段：ann_date,holder_name,hold_amount,vol,ratio,
+//           after_share,after_ratio,avg_price,total_share,report_type
+// ─────────────────────────────────────────────────────────────────────
+export async function getShareholderTrade(
+  tsCode:    string,
+  startDate: string,
+  endDate:   string,
+): Promise<TushareResult> {
+  return callTushare(
+    "stk_holdertrade",
+    { ts_code: tsCode, start_date: startDate, end_date: endDate },
+    "ts_code,ann_date,holder_name,hold_amount,vol,ratio,after_share,after_ratio,avg_price,total_share,report_type",
+    24 * 60 * 60 * 1000,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // 工具：Tushare ts_code → symbol（去掉后缀）
 // ─────────────────────────────────────────────────────────────────────
 export function tsCodeToSymbol(tsCode: string): string {
