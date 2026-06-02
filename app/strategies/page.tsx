@@ -39,6 +39,10 @@ export default function StrategiesPage() {
       router.push("/strategies/st-limit-down-first-limit-up");
       return;
     }
+    if (strategyId === "trend-correction-mini-reversal") {
+      router.push("/strategies/trend-correction-mini-reversal");
+      return;
+    }
     // 多因子轮动策略直接到回测页（默认模式）
     if (strategyId === "a-share-multi-factor") {
       router.push("/backtest");

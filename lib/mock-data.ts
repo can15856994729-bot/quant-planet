@@ -556,6 +556,28 @@ export const MOCK_STRATEGIES: Strategy[] = [
     ],
     tags: ["趋势跟随", "多因子选股", "动态仓位", "风险控制", "中低频"],
   },
+  {
+    id: "trend-correction-mini-reversal",
+    name: "A股趋势回调微型反转策略",
+    description: "扫描 A股全市场，寻找经历长期上涨（涨幅≥50%）后，回调到上涨幅度50%附近（40%~60%区间）并出现微型反转信号的股票，作为买入候选。必须同时满足：长期上涨趋势 + 50%回撤 + 微型反转确认。",
+    marketCondition: "全市场",
+    annualReturn: 0,
+    maxDrawdown:  0,
+    winRate:   0,
+    tradeCount: 0,
+    riskLevel: "中",
+    indicators: ["MA5", "MA60", "RSI", "MACD", "KDJ", "50%回撤", "微型反转", "成交量"],
+    markets: ["A"],
+    params: [
+      { key: "lookbackDays",          label: "回看周期",     defaultValue: 250, min: 120, max: 500, step: 20, unit: "日" },
+      { key: "minRisePercent",        label: "最小上涨幅度", defaultValue: 50,  min: 30,  max: 100, step: 10, unit: "%" },
+      { key: "minTrendDays",          label: "最小趋势天数", defaultValue: 60,  min: 30,  max: 120, step: 10, unit: "日" },
+      { key: "stopLossPercent",       label: "止损比例",     defaultValue: 5,   min: 2,   max: 15,  step: 1,  unit: "%" },
+      { key: "takeProfitPercent",     label: "止盈比例",     defaultValue: 10,  min: 5,   max: 30,  step: 5,  unit: "%" },
+      { key: "minMiniReversalScore",  label: "最低反转评分", defaultValue: 60,  min: 40,  max: 90,  step: 5,  unit: "分" },
+    ],
+    tags: ["A股全市场", "趋势回调", "50%回撤", "微型反转", "技术策略", "回测", "模拟盘"],
+  },
 ];
 
 // ─── 回测结果 ─────────────────────────────────────────────────
