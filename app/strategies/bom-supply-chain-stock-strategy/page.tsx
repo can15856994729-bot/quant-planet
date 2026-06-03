@@ -16,11 +16,11 @@ import type { BomIndustryTemplate } from "@/lib/bomIndustryTemplateService";
 import { ErrorBoundary } from "../trend-correction-mini-reversal/ErrorBoundary";
 
 // ── 动态导入（避免 SSR 崩溃） ────────────────────────────────────
-const IndustryBomView     = dynamic(() => import("./IndustryBomView"),     { ssr: false, loading: () => <TabLoading /> });
-const CandidatePool       = dynamic(() => import("./CandidatePool"),       { ssr: false, loading: () => <TabLoading /> });
-const SingleStockAnalysis = dynamic(() => import("./SingleStockAnalysis"), { ssr: false, loading: () => <TabLoading /> });
-const PCBStockPool        = dynamic(() => import("./PCBStockPool"),        { ssr: false, loading: () => <TabLoading /> });
-const CPOStockPool        = dynamic(() => import("./CPOStockPool"),        { ssr: false, loading: () => <TabLoading /> });
+const IndustryBomView      = dynamic(() => import("./IndustryBomView"),      { ssr: false, loading: () => <TabLoading /> });
+const CandidatePool        = dynamic(() => import("./CandidatePool"),        { ssr: false, loading: () => <TabLoading /> });
+const SingleStockAnalysis  = dynamic(() => import("./SingleStockAnalysis"),  { ssr: false, loading: () => <TabLoading /> });
+const PCBChokepointPool    = dynamic(() => import("./PCBChokepointPool"),    { ssr: false, loading: () => <TabLoading /> });
+const CPOChokepointPool    = dynamic(() => import("./CPOChokepointPool"),    { ssr: false, loading: () => <TabLoading /> });
 
 function TabLoading() {
   return (
@@ -35,8 +35,8 @@ type TabKey = "info" | "industry" | "pcb" | "cpo" | "pool" | "single";
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "info",     label: "说明",    icon: <Info size={13} /> },
   { key: "industry", label: "行业BOM", icon: <Layout size={13} /> },
-  { key: "pcb",      label: "PCB池",   icon: <Cpu size={13} /> },
-  { key: "cpo",      label: "CPO池",   icon: <Radio size={13} /> },
+  { key: "pcb",      label: "PCB咽喉",  icon: <Cpu size={13} /> },
+  { key: "cpo",      label: "CPO咽喉",  icon: <Radio size={13} /> },
   { key: "pool",     label: "候选池",  icon: <Users size={13} /> },
   { key: "single",   label: "单只",    icon: <Search size={13} /> },
 ];
@@ -282,13 +282,13 @@ export default function BomSupplyChainStrategyPage() {
 
         {tab === "pcb" && (
           <ErrorBoundary>
-            <PCBStockPool />
+            <PCBChokepointPool />
           </ErrorBoundary>
         )}
 
         {tab === "cpo" && (
           <ErrorBoundary>
-            <CPOStockPool />
+            <CPOChokepointPool />
           </ErrorBoundary>
         )}
       </div>
