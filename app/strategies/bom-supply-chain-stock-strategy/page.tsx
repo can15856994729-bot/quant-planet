@@ -10,15 +10,16 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Info, Layout, Users, Search, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Info, Layout, Users, Search, AlertTriangle, Cpu } from "lucide-react";
 import { getBomIndustryList, getBomIndustryTemplate } from "@/lib/bomIndustryTemplateService";
 import type { BomIndustryTemplate } from "@/lib/bomIndustryTemplateService";
 import { ErrorBoundary } from "../trend-correction-mini-reversal/ErrorBoundary";
 
 // ── 动态导入（避免 SSR 崩溃） ────────────────────────────────────
-const IndustryBomView    = dynamic(() => import("./IndustryBomView"),     { ssr: false, loading: () => <TabLoading /> });
-const CandidatePool      = dynamic(() => import("./CandidatePool"),       { ssr: false, loading: () => <TabLoading /> });
+const IndustryBomView     = dynamic(() => import("./IndustryBomView"),     { ssr: false, loading: () => <TabLoading /> });
+const CandidatePool       = dynamic(() => import("./CandidatePool"),       { ssr: false, loading: () => <TabLoading /> });
 const SingleStockAnalysis = dynamic(() => import("./SingleStockAnalysis"), { ssr: false, loading: () => <TabLoading /> });
+const PCBStockPool        = dynamic(() => import("./PCBStockPool"),        { ssr: false, loading: () => <TabLoading /> });
 
 function TabLoading() {
   return (
@@ -28,11 +29,12 @@ function TabLoading() {
   );
 }
 
-type TabKey = "info" | "industry" | "pool" | "single";
+type TabKey = "info" | "industry" | "pool" | "single" | "pcb";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "info",     label: "策略说明", icon: <Info size={14} /> },
   { key: "industry", label: "行业BOM",  icon: <Layout size={14} /> },
+  { key: "pcb",      label: "PCB池",    icon: <Cpu size={14} /> },
   { key: "pool",     label: "候选池",   icon: <Users size={14} /> },
   { key: "single",   label: "单只分析", icon: <Search size={14} /> },
 ];
@@ -273,6 +275,12 @@ export default function BomSupplyChainStrategyPage() {
         {tab === "single" && (
           <ErrorBoundary>
             <SingleStockAnalysis />
+          </ErrorBoundary>
+        )}
+
+        {tab === "pcb" && (
+          <ErrorBoundary>
+            <PCBStockPool />
           </ErrorBoundary>
         )}
       </div>
